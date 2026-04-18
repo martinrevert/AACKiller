@@ -86,7 +86,7 @@ sequenceDiagram
 	Indexer->>Events: publishJob(PENDING)
 	Events->>Client: job event (PENDING)
 
-	Note over Dir,FS: new files may arrive
+	note over Dir,FS: new files may arrive
 	Dir->>Probe: probe(newfile)
 	Probe->>Dir: stream info
 	Dir->>Repo: save(PENDING)
@@ -162,7 +162,7 @@ sequenceDiagram
 	Worker->>Dir: stop()
 	Worker->>Events: publishWorkerStatus(stopped)
 	Events->>User: workerStatus(stopped)
-	Note over Worker: stop polling; allow in-flight conversions to finish
+	note over Worker: stop polling; allow in-flight conversions to finish
 ```
 
 Clear index & delete flows
@@ -185,7 +185,7 @@ sequenceDiagram
 		Events->>User: workerStatus(running)
 	end
 
-	Note over API,Repo: Delete single job
+	note over API,Repo: Delete single job
 	User->>API: DELETE /api/v1/jobs/{id}
 	API->>Repo: deleteById(id)
 	API->>Events: publishDelete(id)
