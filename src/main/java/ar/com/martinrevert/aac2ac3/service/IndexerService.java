@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -20,6 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class IndexerService {
+    private static final Logger log = LoggerFactory.getLogger(IndexerService.class);
+
     @Autowired
     private JobRepository jobRepository;
 
@@ -134,13 +138,13 @@ public class IndexerService {
                         }
                     } catch (Exception e) {
                         // probe may fail; skip this file
-                        e.printStackTrace();
+                        log.warn("Failed to inspect candidate file {}", file, e);
                     }
                     return FileVisitResult.CONTINUE;
                 }
             });
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Indexer walk failed for scanPath [{}]", scanPath, e);
         }
     }
 }

@@ -20,3 +20,5 @@ agent.md
 .build/*
 build/*
 samples/*
+data/*
+data/aac2ac3.mv.db

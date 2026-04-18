@@ -117,12 +117,12 @@ sequenceDiagram
 	Worker->>FS: move input -> work/backup (atomic or fallback)
 	Worker->>Probe: probe(backup)
 	Probe->>Worker: stream info
-	Worker->>FF: run ffmpeg (writes logs)
+	Worker->>FF: run ffmpeg (stdout logging)
 	FF->>Worker: exitCode
 
 	alt exitCode != 0
 		Worker->>FS: restore backup -> original
-		Worker->>Repo: set FAILED, set logsPath(stderr), save
+		Worker->>Repo: set FAILED, set logsPath(stdout:ffmpeg-failed), save
 		Worker->>Events: publishJob(FAILED)
 		Events->>Client: job event (FAILED)
 	else exitCode == 0
@@ -139,8 +139,6 @@ sequenceDiagram
 			Worker->>Repo: set DONE, set logsPath(stdout), save
 			Worker->>Events: publishJob(DONE)
 			Events->>Client: job event (DONE)
-			Worker->>FS: delete per-job logs
-			Worker->>Repo: update logsPath(deleted-on-success), save
 			Worker->>Events: publishJob(updated)
 			Events->>Client: job event (updated)
 		end
@@ -210,9 +208,6 @@ Key properties and environment variables
 - `ffmpeg.timeout.seconds` — maximum seconds to let `ffmpeg` run for a job (default `7200`).
 	- Implication: too-low values may abort conversions for large files; too-high values keep hung processes longer.
 
-- `logs.retention.days` / `LOGS_RETENTION_DAYS` — days to retain failed-job logs before scheduled cleanup (default `30`).
-	- Implication: successful-job logs are deleted immediately by default (to avoid disk bloat). Failed-job logs are retained for this many days and then removed by a scheduled cleanup. Increase if you need longer forensic history.
-
 - `spring.datasource.url` — JDBC URL for the job index (default points to a file-backed H2 database under `data/`).
 	- Implication: switching this to a different DB file or server will change which index the app uses. If you run multiple app instances against the same file-backed H2 DB on a shared filesystem you risk corruption — use a server DB (Postgres/MySQL) for multi-instance setups.
 
@@ -252,7 +247,8 @@ Recommendations
 
 
 Logs & artifacts
-- Conversion logs are written to `logs/job-<id>-err.log` and `logs/job-<id>-out.log`.
+- Conversion logs are emitted to application stdout/stderr (terminal or container logs).
+- `logsPath` in job rows is now a stdout marker (for example `stdout`, `stdout:ffmpeg-failed`, `stdout:exception`) instead of a file path.
 - Default DB file is `data/aac2ac3.mv.db` when using the included file-backed H2 configuration.
 
 Where to go next

@@ -6,17 +6,19 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.nio.file.*;
-import java.time.Duration;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.*;
 
 @Service
 public class DirectoryWatcherService {
+    private static final Logger log = LoggerFactory.getLogger(DirectoryWatcherService.class);
+
     @Autowired
     private JobRepository jobRepository;
 
@@ -69,9 +71,9 @@ public class DirectoryWatcherService {
             watcherThread = new Thread(this::processLoop, "directory-watcher");
             watcherThread.setDaemon(true);
             watcherThread.start();
-            System.out.println("DirectoryWatcherService started watching: " + root.toAbsolutePath());
+            log.info("DirectoryWatcherService started watching: {}", root.toAbsolutePath());
         } catch (IOException e) {
-            System.out.println("DirectoryWatcherService failed to start: " + e.getMessage());
+            log.error("DirectoryWatcherService failed to start", e);
         }
     }
 
@@ -81,7 +83,7 @@ public class DirectoryWatcherService {
         try { if (taskExecutor != null) taskExecutor.shutdownNow(); } catch (Exception ignored) {}
         try { if (scheduledExecutor != null) scheduledExecutor.shutdownNow(); } catch (Exception ignored) {}
         if (watcherThread != null) watcherThread.interrupt();
-        System.out.println("DirectoryWatcherService stopped");
+        log.info("DirectoryWatcherService stopped");
     }
 
     private void registerAll(Path start) throws IOException {
@@ -97,7 +99,7 @@ public class DirectoryWatcherService {
             WatchKey key = dir.register(watchService, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY);
             keys.put(key, dir);
         } catch (IOException e) {
-            System.out.println("Failed to register directory for watching: " + dir + " -> " + e.getMessage());
+            log.warn("Failed to register directory for watching: {}", dir, e);
         }
     }
 
@@ -124,7 +126,7 @@ public class DirectoryWatcherService {
                 Path name = ev.context();
                 Path child = dir.resolve(name);
 
-                appendLog("watch-event: " + kind.name() + " -> " + child.toAbsolutePath());
+                log.debug("watch-event: {} -> {}", kind.name(), child.toAbsolutePath());
 
                 if (Files.isDirectory(child) && kind == StandardWatchEventKinds.ENTRY_CREATE) {
                     try { registerAll(child); } catch (IOException ignored) {}
@@ -193,7 +195,7 @@ public class DirectoryWatcherService {
                             }
                         }
                         try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
-                        System.out.println("DirectoryWatcherService enqueued job: " + abs);
+                        log.info("DirectoryWatcherService enqueued job: {}", abs);
                     }
                 } finally {
                     jobEventService.pathLocks.remove(abs, lock);
@@ -204,7 +206,7 @@ public class DirectoryWatcherService {
                         scheduledExecutor.schedule(() -> submitProbeTask(file, attempt + 1), probeRetryDelayMs, TimeUnit.MILLISECONDS);
                     }
                 } else {
-                    System.out.println("DirectoryWatcherService: probe failed for " + file + " -> " + e.getMessage());
+                    log.warn("DirectoryWatcherService: probe failed for {}", file, e);
                 }
             }
         });
@@ -212,13 +214,4 @@ public class DirectoryWatcherService {
 
     @PreDestroy
     public void shutdown() { stop(); }
-
-    private void appendLog(String s) {
-        try {
-            Path log = Path.of("logs", "watcher-events.log");
-            if (log.getParent() != null) Files.createDirectories(log.getParent());
-            String line = System.currentTimeMillis() + " " + s + System.lineSeparator();
-            Files.writeString(log, line, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
-        } catch (Exception ignored) {}
-    }
 }

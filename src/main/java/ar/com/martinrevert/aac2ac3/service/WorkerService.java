@@ -2,16 +2,15 @@ package ar.com.martinrevert.aac2ac3.service;
 
 import ar.com.martinrevert.aac2ac3.infra.JobRepository;
 import ar.com.martinrevert.aac2ac3.model.Job;
-import ar.com.martinrevert.aac2ac3.runner.FfmpegRunner;
 import ar.com.martinrevert.aac2ac3.util.FfmpegCommandBuilder;
-import ar.com.martinrevert.aac2ac3.util.ProbeUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import jakarta.annotation.PreDestroy;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -22,6 +21,8 @@ import java.util.concurrent.Executors;
 
 @Service
 public class WorkerService {
+    private static final Logger log = LoggerFactory.getLogger(WorkerService.class);
+
     @Autowired
     private JobRepository jobRepository;
 
@@ -58,7 +59,7 @@ public class WorkerService {
             if (running) return;
             running = true;
             // Build the index first (probe files) before starting workers
-            try { indexerService.index(); } catch (Exception e) { e.printStackTrace(); }
+            try { indexerService.index(); } catch (Exception e) { log.error("Initial index run failed", e); }
             poller = Executors.newSingleThreadExecutor();
             workerPool = Executors.newFixedThreadPool(Math.max(1, maxConcurrency));
             poller.submit(this::loop);
@@ -96,7 +97,7 @@ public class WorkerService {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
-                e.printStackTrace();
+                log.error("Worker polling loop failed", e);
             }
         }
     }
@@ -106,16 +107,14 @@ public class WorkerService {
         try {
             if (!Files.exists(input)) {
                 job.setStatus("FAILED");
-                job.setLogsPath("file-not-found");
+                job.setLogsPath("stdout:file-not-found");
+                log.warn("Job {} failed: source file not found [{}]", job.getId(), job.getFilePath());
                 Job saved = jobRepository.save(job);
                 try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
                 return;
             }
             Path parent = input.getParent() == null ? Path.of(".") : input.getParent();
             String name = input.getFileName().toString();
-            String base = name;
-            int dot = name.lastIndexOf('.');
-            if (dot > 0) base = name.substring(0, dot);
 
             // Use a dedicated work directory (outside of typical scan paths) for backups and tmp outputs
             Path workDir = Path.of("work");
@@ -134,20 +133,19 @@ public class WorkerService {
             JsonNode probe = probeService.probe(backup.toFile());
 
             Path tmpOut = workDir.resolve("job-" + job.getId() + "-tmp.mkv");
-            Files.createDirectories(Path.of("logs"));
-            Path stdout = Path.of("logs", "job-" + job.getId() + "-out.log");
-            Path stderr = Path.of("logs", "job-" + job.getId() + "-err.log");
 
             int threadsToUse = ffmpegThreads > 0 ? ffmpegThreads : Math.max(1, maxConcurrency);
             List<String> cmd = FfmpegCommandBuilder.buildFromProbe(probe, backup.toFile(), tmpOut.toFile(), threadsToUse);
+            log.info("Job {} starting ffmpeg conversion for [{}]", job.getId(), job.getFilePath());
 
-            int rc = ffmpegService.run(cmd, parent.toFile(), stdout, stderr, Duration.ofSeconds(ffmpegTimeoutSeconds));
+            int rc = ffmpegService.run(cmd, parent.toFile(), Duration.ofSeconds(ffmpegTimeoutSeconds));
             if (rc != 0) {
                 // restore backup
                 Files.move(backup, input, StandardCopyOption.REPLACE_EXISTING);
                 job.setStatus("FAILED");
                 job.setFinishedAt(System.currentTimeMillis());
-                job.setLogsPath(stderr.toString());
+                job.setLogsPath("stdout:ffmpeg-failed");
+                log.warn("Job {} failed: ffmpeg exit code {} for [{}]", job.getId(), rc, job.getFilePath());
                 Job saved = jobRepository.save(job);
                 try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
                 return;
@@ -161,7 +159,8 @@ public class WorkerService {
                 Files.move(backup, input, StandardCopyOption.REPLACE_EXISTING);
                 job.setStatus("FAILED");
                 job.setFinishedAt(System.currentTimeMillis());
-                job.setLogsPath(stderr.toString());
+                job.setLogsPath("stdout:verification-failed");
+                log.warn("Job {} failed: output verification did not pass for [{}]", job.getId(), job.getFilePath());
                 Job saved = jobRepository.save(job);
                 try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
                 return;
@@ -173,25 +172,16 @@ public class WorkerService {
             try { Files.deleteIfExists(backup); } catch (Exception ignored) {}
             job.setStatus("DONE");
             job.setFinishedAt(System.currentTimeMillis());
-            job.setLogsPath(stdout.toString());
+            job.setLogsPath("stdout");
+            log.info("Job {} completed successfully for [{}]", job.getId(), job.getFilePath());
             Job saved = jobRepository.save(job);
             try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
-
-            // delete per-job logs on success (we retain logs only for failed jobs)
-            try {
-                Files.deleteIfExists(stdout);
-                Files.deleteIfExists(stderr);
-            } catch (Exception ignored) {}
-
-            // update record to indicate logs were removed
-            job.setLogsPath("deleted-on-success");
-            Job saved2 = jobRepository.save(job);
-            try { jobEventService.publishJob(saved2); } catch (Exception ignored) {}
         } catch (Exception e) {
             try { Files.move(Path.of(job.getFilePath() + ""), Path.of(job.getFilePath())); } catch (Exception ignored) {}
             job.setStatus("FAILED");
             job.setFinishedAt(System.currentTimeMillis());
-            job.setLogsPath(e.toString());
+            job.setLogsPath("stdout:exception");
+            log.error("Job {} failed with exception for [{}]", job.getId(), job.getFilePath(), e);
             Job savedEx = jobRepository.save(job);
             try { jobEventService.publishJob(savedEx); } catch (Exception ignored) {}
         }
