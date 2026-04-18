@@ -23,11 +23,11 @@ Architecture (Mermaid)
 ```mermaid
 flowchart LR
 	subgraph App["aac2ac3-service (Spring Boot)"]
-		HTTP[HTTP API<br/>(ControlController / JobController)]
-		Worker[WorkerService]
-		Indexer[IndexerService<br/>DirectoryWatcherService]
-		Repo[JobRepository<br/>(H2 file-backed)]
-		Events[JobEventService<br/>(SSE)]
+		HTTP["HTTP API\n(ControlController / JobController)"]
+		Worker["WorkerService"]
+		Indexer["IndexerService\n(DirectoryWatcherService)"]
+		Repo["JobRepository\n(H2 file-backed)"]
+		Events["JobEventService\n(SSE)"]
 	end
 
 	FF[ffmpeg<br/>(system process)]
