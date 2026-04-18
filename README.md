@@ -74,27 +74,27 @@ sequenceDiagram
 
 	Client->>API: GET /api/v1/jobs/stream
 	API->>Events: subscribe()
-	Events-->>Client: jobsSnapshot + workerStatus
+	Events->>Client: jobsSnapshot + workerStatus
 
 	User->>API: POST /api/v1/control/start
 	API->>Worker: start()
 	Worker->>Indexer: index()
 	Indexer->>FS: walk(scanPath)
 	Indexer->>Probe: probe(file)
-	Probe-->>Indexer: stream info
+	Probe->>Indexer: stream info
 	Indexer->>Repo: save(PENDING)
 	Indexer->>Events: publishJob(PENDING)
-	Events-->>Client: job event (PENDING)
+	Events->>Client: job event (PENDING)
 
 	Note over Dir,FS: new files may arrive
 	Dir->>Probe: probe(newfile)
-	Probe-->>Dir: stream info
+	Probe->>Dir: stream info
 	Dir->>Repo: save(PENDING)
 	Dir->>Events: publishJob(PENDING)
-	Events-->>Client: job event (PENDING)
+	Events->>Client: job event (PENDING)
 
 	Worker->>Events: publishWorkerStatus(running)
-	Events-->>Client: workerStatus(running)
+	Events->>Client: workerStatus(running)
 ```
 
 Conversion flow (per job)
@@ -112,37 +112,37 @@ sequenceDiagram
 	Repo->>Worker: poll/find PENDING
 	Worker->>Repo: set RUNNING, save
 	Worker->>Events: publishJob(RUNNING)
-	Events-->>Client: job event (RUNNING)
+	Events->>Client: job event (RUNNING)
 
 	Worker->>FS: move input -> work/backup (atomic or fallback)
 	Worker->>Probe: probe(backup)
-	Probe-->>Worker: stream info
+	Probe->>Worker: stream info
 	Worker->>FF: run ffmpeg (writes logs)
-	FF-->>Worker: exitCode
+	FF->>Worker: exitCode
 
 	alt exitCode != 0
 		Worker->>FS: restore backup -> original
 		Worker->>Repo: set FAILED, set logsPath(stderr), save
 		Worker->>Events: publishJob(FAILED)
-		Events-->>Client: job event (FAILED)
+		Events->>Client: job event (FAILED)
 	else exitCode == 0
 		Worker->>Probe: probe(tmpOut)
-		Probe-->>Worker: outStreams
+		Probe->>Worker: outStreams
 		alt verify failed
 			Worker->>FS: restore backup -> original
 			Worker->>Repo: set FAILED, save
 			Worker->>Events: publishJob(FAILED)
-			Events-->>Client: job event (FAILED)
+			Events->>Client: job event (FAILED)
 		else verify ok
 			Worker->>FS: move tmpOut -> original (atomic)
 			Worker->>FS: delete backup
 			Worker->>Repo: set DONE, set logsPath(stdout), save
 			Worker->>Events: publishJob(DONE)
-			Events-->>Client: job event (DONE)
+			Events->>Client: job event (DONE)
 			Worker->>FS: delete per-job logs
 			Worker->>Repo: update logsPath(deleted-on-success), save
 			Worker->>Events: publishJob(updated)
-			Events-->>Client: job event (updated)
+			Events->>Client: job event (updated)
 		end
 	end
 ```
@@ -161,7 +161,7 @@ sequenceDiagram
 	API->>Worker: stop()
 	Worker->>Dir: stop()
 	Worker->>Events: publishWorkerStatus(stopped)
-	Events-->>User: workerStatus(stopped)
+	Events->>User: workerStatus(stopped)
 	Note over Worker: stop polling; allow in-flight conversions to finish
 ```
 
@@ -178,18 +178,18 @@ sequenceDiagram
 	API->>Worker: stop()
 	API->>Repo: deleteAll()
 	API->>Events: publishClear()
-	Events-->>User: indexCleared + empty jobsSnapshot
+	Events->>User: indexCleared + empty jobsSnapshot
 
 	alt restart=true
 		API->>Worker: start()
-		Events-->>User: workerStatus(running)
+		Events->>User: workerStatus(running)
 	end
 
 	Note over API,Repo: Delete single job
 	User->>API: DELETE /api/v1/jobs/{id}
 	API->>Repo: deleteById(id)
 	API->>Events: publishDelete(id)
-	Events-->>User: jobDeleted(id)
+	Events->>User: jobDeleted(id)
 ```
 
 Configuration & environment variables
