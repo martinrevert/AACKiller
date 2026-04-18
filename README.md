@@ -162,7 +162,7 @@ sequenceDiagram
 	Worker->>Dir: stop()
 	Worker->>Events: publishWorkerStatus(stopped)
 	Events->>User: workerStatus(stopped)
-	note over Worker: stop polling; allow in-flight conversions to finish
+	note right of Worker: stop polling; allow in-flight conversions to finish
 ```
 
 Clear index & delete flows
