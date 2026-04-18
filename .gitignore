@@ -1,5 +1,6 @@
 .vscode/settings.json
 agent.md
+.github/agents/
 .github/skills/caveman/SKILL.md
 .gradle-dist/*
 .gradle/*
