@@ -30,9 +30,9 @@ flowchart LR
 		Events["JobEventService\n(SSE)"]
 	end
 
-	FF[ffmpeg<br/>(system process)]
-	FS[Filesystem<br/>(scanPath mount)]
-	Client[UI / CLI / Other Clients]
+	FF["ffmpeg\n(system process)"]
+	FS["Filesystem\n(scanPath mount)"]
+	Client["UI / CLI / Other Clients"]
 
 	HTTP -- "control & job REST APIs" --> Worker
 	HTTP -- "job REST APIs (list/get/delete/stream)" --> Repo
