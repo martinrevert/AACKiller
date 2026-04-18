@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AAC→AC3 Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app-bar">
+    <div class="app-bar-inner container">
+      <div class="app-title"><a href="/">AAC→AC3</a></div>
+      <nav class="app-nav">
+        <a href="/">Dashboard</a>
+        <a href="/index-contents.html">Index</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container">
+    <header>
+      <h1>AAC→AC3 Dashboard</h1>
+      <p class="muted">Quick controls and info for the service</p>
+    </header>
+
+    <section class="controls">
+      <h2>Controls</h2>
+      <div class="btn-row">
+        <button id="startBtn" class="btn primary">Start Worker</button>
+        <button id="stopBtn" class="btn">Stop Worker</button>
+        <button id="clearBtn" class="btn danger">Clear Index</button>
+      </div>
+      <div id="statusArea" class="status">Status: <span id="statusText">unknown</span></div>
+    </section>
+
+    <section class="info">
+      <h2>Jobs</h2>
+      <div id="jobsArea"></div>
+    </section>
+
+
+    <footer>
+      <small>Hosted by the AAC→AC3 service. Make sure <code>ffmpeg</code> and <code>ffprobe</code> are on PATH.</small>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

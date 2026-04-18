@@ -1,0 +1,7 @@
+FROM linuxserver/ffmpeg:latest
+
+# Copy the native binary into the ffmpeg runtime image
+COPY native-binary/aac2ac3 /usr/local/bin/aac2ac3
+RUN chmod +x /usr/local/bin/aac2ac3
+
+ENTRYPOINT ["/usr/local/bin/aac2ac3"]

@@ -1,0 +1,12 @@
+version: "3.8"
+services:
+  aac2ac3:
+    image: myrepo/aac2ac3:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '2'

@@ -1,0 +1,94 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.0.0'
+    id 'jacoco'
+}
+
+group = 'ar.com.martinrevert'
+version = '0.1.0-SNAPSHOT'
+
+ext {
+    springBootVersion = '4.0.0'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Use Gradle platform to import Spring Boot BOM versions (pure Gradle)
+    implementation platform("org.springframework.boot:spring-boot-dependencies:${springBootVersion}")
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    runtimeOnly 'com.h2database:h2'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.9.3'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-parameters']
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+    }
+}
+
+jacoco {
+    toolVersion = '0.8.14'
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+bootJar {
+    mainClass.set('ar.com.martinrevert.aac2ac3.Application')
+}
+
+// AOT processing: provide a task that hooks into Gradle's AOT integration if present.
+tasks.register('processAot') {
+    group = 'build'
+    description = 'Run Spring AOT processing (no-op if not available)'
+    doLast {
+        if (project.tasks.findByName('bootAot') == null) {
+            println 'No bootAot task available; processAot is a no-op. Add Spring AOT support if you need AOT outputs.'
+        } else {
+            println 'bootAot task is available; it will run as a dependency of processAot.'
+        }
+    }
+}
+
+gradle.projectsEvaluated {
+    if (tasks.findByName('bootAot') != null) {
+        tasks.named('processAot') { dependsOn 'bootAot' }
+    }
+    tasks.named('bootJar') { dependsOn 'processAot' }
+}
+
+// Copy runtime dependencies into Gradle-style build directory for native-image/classpath use
+tasks.register('copyRuntimeDependencies', Copy) {
+    dependsOn configurations.runtimeClasspath
+    from(configurations.runtimeClasspath)
+    into("$buildDir/dependency")
+}
+
+// The build lifecycle produces jars under build/libs and AOT outputs under build/spring-aot (if enabled).
+// Prefer Gradle outputs and tasks (no Maven `target/` layout).

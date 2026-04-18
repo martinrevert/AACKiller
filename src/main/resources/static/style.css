@@ -1,0 +1,84 @@
+:root{
+  --bg:#0f1724;
+  --card:#0b1220;
+  --accent:#4f46e5;
+  --muted:#9aa4b2;
+  --success:#16a34a;
+  --danger:#dc2626;
+  --text:#e6eef6;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;color:var(--text);background:linear-gradient(180deg,#071127 0%, #07182a 100%);}
+.container{max-width:980px;margin:28px auto;padding:20px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+/* App bar */
+.app-bar{background:rgba(2,6,23,0.8);backdrop-filter:blur(6px);position:sticky;top:0;z-index:40}
+.app-bar .app-bar-inner{display:flex;align-items:center;justify-content:space-between;padding:12px 20px}
+.app-title a{color:var(--text);text-decoration:none;font-weight:700;font-size:16px}
+.app-nav a{color:var(--muted);text-decoration:none;margin-left:18px}
+.app-nav a:hover{color:var(--text)}
+header h1{margin:0;font-size:22px}
+.muted{color:var(--muted)}
+section{margin-top:18px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.02)}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn{padding:10px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--text);cursor:pointer;min-width:44px}
+.btn.primary{background:linear-gradient(90deg,var(--accent),#7c3aed);font-weight:600}
+.btn.danger{background:linear-gradient(90deg,var(--danger),#b91c1c)}
+.status{margin-top:8px}
+#statusArea{word-break:break-word}
+#jobsArea{margin-top:12px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+ .table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.03);font-size:13px}
+.form-row{display:flex;gap:8px;align-items:center}
+input[type=text]{flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:rgba(255,255,255,0.02);color:var(--text);min-width:0}
+footer{margin-top:16px;color:var(--muted);font-size:12px}
+
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px}
+.badge.pending{background:#f59e0b;color:#111}
+.badge.running{background:#06b6d4;color:#022}
+.badge.done{background:var(--success);color:#022}
+.badge.failed{background:var(--danger);color:#fff}
+
+.muted small{color:var(--muted)}
+
+/* Responsive adjustments */
+@media (max-width: 720px) {
+  .container{margin:12px;padding:12px}
+  header h1{font-size:18px}
+  section{padding:10px}
+  .btn-row{flex-direction:column;align-items:stretch}
+  .btn{width:100%;padding:12px 14px;font-size:16px;border-radius:10px}
+  .form-row{flex-direction:column;align-items:stretch}
+  input[type=text]{width:100%}
+  #jobsArea{margin-top:12px;overflow-x:auto}
+  table{min-width:720px}
+  th,td{padding:10px;font-size:14px}
+}
+
+@media (max-width:420px) {
+  header h1{font-size:16px}
+  .btn{padding:10px;font-size:15px}
+  th,td{padding:8px;font-size:13px}
+  .container{padding:10px}
+  #jobsArea table{min-width:640px}
+}
+
+/* Minor visual niceties for narrow screens */
+#jobsArea table tr:nth-child(odd) td{background:rgba(255,255,255,0.01)}
+
+/* Job card layout for small screens */
+.job-card{background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));border-radius:10px;padding:10px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.02);display:flex;flex-direction:column;gap:8px}
+.job-card .job-row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.job-card .job-filename{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.job-card .job-fullpath{display:none;color:var(--muted);font-size:13px;word-break:break-word}
+.job-card.expanded .job-filename{white-space:normal;overflow-wrap:anywhere}
+.job-card.expanded .job-fullpath{display:block}
+.job-actions{display:flex;gap:8px}
+.btn.small{padding:6px 10px;font-size:13px;border-radius:8px}
+
+/* Prefer cards under 720px; hide large-table min-width for tiny screens */
+@media (max-width: 720px) {
+  #jobsArea table{display:none}
+}
+
+

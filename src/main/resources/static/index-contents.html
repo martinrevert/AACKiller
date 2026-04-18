@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Index Contents — AAC→AC3</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app-bar">
+    <div class="app-bar-inner container">
+      <div class="app-title"><a href="/">AAC→AC3</a></div>
+      <nav class="app-nav">
+        <a href="/">Dashboard</a>
+        <a href="/index-contents.html">Index</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container">
+    <header>
+      <h1>Index Contents</h1>
+      <p class="muted">Browse the indexed jobs and their metadata</p>
+    </header>
+
+    <section>
+      <div class="btn-row">
+        <button id="clearIndexBtn" class="btn danger">Clear Index</button>
+      </div>
+      <div id="indexArea" style="margin-top:12px"></div>
+    </section>
+
+    <footer>
+      <small class="muted">Index view — shows all jobs stored in the DB</small>
+    </footer>
+  </div>
+
+  <script>
+    async function fetchJobs(){
+      try{
+        const res = await fetch('/api/v1/jobs');
+        if(!res.ok) throw new Error('status '+res.status);
+        return await res.json();
+      }catch(e){ return {error:e.toString()} }
+    }
+
+    function formatDate(ms){ if(!ms) return ''; try{ return new Date(Number(ms)).toLocaleString(); }catch(e){ return String(ms) } }
+
+    function renderTable(jobs){
+      if(!Array.isArray(jobs) || jobs.length===0) return '<div class="muted">No jobs</div>';
+      let html = '<div class="table-wrapper"><table><thead><tr><th>ID</th><th>File</th><th>Status</th><th>Retries</th><th>Created</th><th>Started</th><th>Finished</th><th>Logs</th></tr></thead><tbody>';
+      for(const j of jobs){
+        html += `<tr><td>${j.id||''}</td><td title="${(j.fileName||'').replace(/"/g,'&quot;')}">${(j.fileName||'')}</td><td>${(j.status||'')}</td><td>${(j.retryCount||0)}</td><td>${formatDate(j.createdAt)}</td><td>${formatDate(j.startedAt)}</td><td>${formatDate(j.finishedAt)}</td><td>${(j.logsPath||'')}</td></tr>`;
+      }
+      html += '</tbody></table></div>';
+      return html;
+    }
+
+    let jobsCacheJson = '';
+    let es = null;
+
+    function updateFromArray(arr){
+      const area = document.getElementById('indexArea');
+      const newJson = JSON.stringify(arr || []);
+      if(newJson === jobsCacheJson) return;
+      jobsCacheJson = newJson;
+      if(area) area.innerHTML = renderTable(arr);
+    }
+
+    function upsertJob(job){
+      let arr = [];
+      try{ arr = JSON.parse(jobsCacheJson || '[]'); }catch(e){ arr = []; }
+      let found = false;
+      for(let i=0;i<arr.length;i++){ if(arr[i].id === job.id){ arr[i] = job; found = true; break; } }
+      if(!found) arr.push(job);
+      updateFromArray(arr);
+    }
+
+    function deleteJobById(id){
+      let arr = [];
+      try{ arr = JSON.parse(jobsCacheJson || '[]'); }catch(e){ arr = []; }
+      arr = arr.filter(j => j.id !== id);
+      updateFromArray(arr);
+    }
+
+    function startSSE(){
+      if(es) return;
+      es = new EventSource('/api/v1/jobs/stream');
+      es.addEventListener('jobsSnapshot', ev => { try{ const data = JSON.parse(ev.data || '[]'); updateFromArray(data); }catch(e){ console.error(e); } });
+      es.addEventListener('job', ev => { try{ const j = JSON.parse(ev.data); upsertJob(j); }catch(e){ console.error(e); } });
+      es.addEventListener('jobDeleted', ev => { try{ deleteJobById(Number(ev.data)); }catch(e){ console.error(e); } });
+      es.addEventListener('indexCleared', ev => { jobsCacheJson = ''; const area = document.getElementById('indexArea'); if(area) area.innerHTML = '<div class="muted">No jobs</div>'; });
+      es.onerror = (err) => { try{ es.close(); }catch(e){}; es = null; setTimeout(startSSE, 3000); };
+    }
+
+    document.addEventListener('DOMContentLoaded',()=>{
+      const clearBtn = document.getElementById('clearIndexBtn');
+      if(clearBtn) clearBtn.addEventListener('click', async ()=>{
+        if(!confirm('Clear index and delete all jobs?')) return;
+        await fetch('/api/v1/control/clear-index?restart=true',{method:'POST'});
+        // server will push indexCleared + snapshot
+      });
+      startSSE();
+    });
+  </script>
+</body>
+</html>
