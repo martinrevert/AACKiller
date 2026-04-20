@@ -1,6 +1,9 @@
 # aac2ac3-service
 
-Service that detects MKV files with AAC audio and converts AAC audio tracks to AC3 using ffmpeg.
+Motivation
+
+Modern HI FI movie audio receivers can't process AAC codec multichannel audio, so if you have video files in MKV container with audio like you cant enjoy them in multi-channel way left stranded to stereo sound. This service resolves that transcoding the AAC audio codec to AC3, which modenr multi-channel HI FI systems understand.
+So, in synthesis, this a service that detects MKV files with AAC audio from a directory (it can be local or a remote Samba directory) and converts AAC audio tracks to AC3 using ffmpeg and levaing untouched subtitles, other non AAC tracks and specially, the video track.
 
 Summary
 - Recursively probe a configured directory for MKV files that contain AAC audio.
