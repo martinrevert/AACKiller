@@ -36,6 +36,42 @@
   </div>
 
   <script>
+    function setBusy(button, busy, busyText){
+      if(!button) return;
+      if(busy){
+        if(!button.dataset.originalText) button.dataset.originalText = button.textContent || '';
+        button.disabled = true;
+        button.classList.add('is-loading');
+        button.textContent = busyText || 'Working...';
+        return;
+      }
+      button.disabled = false;
+      button.classList.remove('is-loading');
+      button.textContent = button.dataset.originalText || button.textContent || '';
+    }
+
+    function ensureToastHost(){
+      let host = document.getElementById('toastHost');
+      if(host) return host;
+      host = document.createElement('div');
+      host.id = 'toastHost';
+      host.className = 'toast-host';
+      document.body.appendChild(host);
+      return host;
+    }
+
+    function showToast(msg, type='info'){
+      const host = ensureToastHost();
+      const t = document.createElement('div');
+      t.className = `toast ${type}`;
+      t.textContent = String(msg || 'done');
+      host.appendChild(t);
+      window.setTimeout(()=>{
+        t.classList.add('hide');
+        window.setTimeout(()=>t.remove(), 260);
+      }, 2600);
+    }
+
     async function fetchJobs(){
       try{
         const res = await fetch('/api/v1/jobs');
@@ -97,8 +133,18 @@
       const clearBtn = document.getElementById('clearIndexBtn');
       if(clearBtn) clearBtn.addEventListener('click', async ()=>{
         if(!confirm('Clear index and delete all jobs?')) return;
-        await fetch('/api/v1/control/clear-index?restart=true',{method:'POST'});
-        // server will push indexCleared + snapshot
+        setBusy(clearBtn, true, 'Clearing...');
+        try{
+          const res = await fetch('/api/v1/control/clear-index',{method:'POST'});
+          if(!res.ok){
+            showToast(`Clear index failed (${res.status})`, 'error');
+            return;
+          }
+          showToast('Index cleared', 'success');
+          // server will push indexCleared + snapshot
+        } finally {
+          setBusy(clearBtn, false);
+        }
       });
       startSSE();
     });

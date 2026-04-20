@@ -38,7 +38,14 @@ public final class FfmpegRunner {
             }
         });
 
-        boolean finished = p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        boolean noTimeout = timeout == null || timeout.isZero() || timeout.isNegative();
+        boolean finished;
+        if (noTimeout) {
+            p.waitFor();
+            finished = true;
+        } else {
+            finished = p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        }
         if (!finished) {
             p.destroyForcibly();
             try {

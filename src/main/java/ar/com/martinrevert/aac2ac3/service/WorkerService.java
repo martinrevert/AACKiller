@@ -39,12 +39,18 @@ public class WorkerService {
     private FfmpegService ffmpegService;
 
     @Autowired
+    private SambaService sambaService;
+
+    @Autowired
+    private ScanPathSettingsService scanPathSettingsService;
+
+    @Autowired
     private ar.com.martinrevert.aac2ac3.service.JobEventService jobEventService;
 
     @Value("${worker.maxConcurrency:2}")
     private int maxConcurrency;
 
-    @Value("${ffmpeg.timeout.seconds:7200}")
+    @Value("${ffmpeg.timeout.seconds:21600}")
     private int ffmpegTimeoutSeconds;
     @Value("${ffmpeg.threads:0}")
     private int ffmpegThreads;
@@ -103,6 +109,11 @@ public class WorkerService {
     }
 
     void processJob(Job job) {
+        if (job.getFilePath() != null && job.getFilePath().toLowerCase().startsWith("smb://")) {
+            processSmbJob(job);
+            return;
+        }
+
         Path input = Path.of(job.getFilePath());
         try {
             if (!Files.exists(input)) {
@@ -187,12 +198,136 @@ public class WorkerService {
         }
     }
 
+    private void processSmbJob(Job job) {
+        String smbUri = job.getFilePath();
+        Path workDir = Path.of("work");
+        Path localBackup = workDir.resolve("job-" + job.getId() + "-smb-backup.mkv");
+        Path localOut = workDir.resolve("job-" + job.getId() + "-smb-out.mkv");
+        String backupSmbUri = null;
+        boolean renamedToBackup = false;
+
+        try {
+            ScanPathSettingsService.SambaConfig cfg = scanPathSettingsService.getSambaConfig();
+            if (!cfg.isConfigured() || !cfg.hasCredentials()) {
+                job.setStatus("FAILED");
+                job.setFinishedAt(System.currentTimeMillis());
+                job.setLogsPath("stdout:smb-credentials-missing");
+                log.warn("Job {} failed: SMB path configured but credentials are missing", job.getId());
+                Job saved = jobRepository.save(job);
+                try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
+                return;
+            }
+
+            if (!sambaService.exists(smbUri, cfg)) {
+                job.setStatus("FAILED");
+                job.setLogsPath("stdout:file-not-found");
+                log.warn("Job {} failed: SMB source file not found [{}]", job.getId(), smbUri);
+                Job saved = jobRepository.save(job);
+                try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
+                return;
+            }
+
+            Files.createDirectories(workDir);
+            try { Files.deleteIfExists(localBackup); } catch (Exception ignored) {}
+            try { Files.deleteIfExists(localOut); } catch (Exception ignored) {}
+
+            backupSmbUri = sambaService.withSuffixBeforeExtension(smbUri, ".aac2ac3-backup-" + job.getId());
+            sambaService.rename(smbUri, backupSmbUri, cfg);
+            renamedToBackup = true;
+
+            // Keep SMB for source/target storage but run ffmpeg on local disk for reliability.
+            sambaService.downloadToLocal(backupSmbUri, cfg, localBackup);
+            JsonNode probe = probeService.probe(localBackup.toFile());
+
+            int threadsToUse = ffmpegThreads > 0 ? ffmpegThreads : Math.max(1, maxConcurrency);
+            List<String> cmd = FfmpegCommandBuilder.buildFromProbe(probe, localBackup.toFile(), localOut.toFile(), threadsToUse);
+            log.info("Job {} starting staged SMB conversion for [{}]", job.getId(), smbUri);
+
+            int rc = ffmpegService.run(cmd, workDir.toFile(), Duration.ofSeconds(ffmpegTimeoutSeconds));
+            if (rc != 0) {
+                sambaService.rename(backupSmbUri, smbUri, cfg);
+                job.setStatus("FAILED");
+                job.setFinishedAt(System.currentTimeMillis());
+                job.setLogsPath("stdout:ffmpeg-failed");
+                log.warn("Job {} failed: staged ffmpeg exit code {} for [{}]", job.getId(), rc, smbUri);
+                Job saved = jobRepository.save(job);
+                try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
+                return;
+            }
+
+            JsonNode outProbe = probeService.probe(localOut.toFile());
+            boolean ok = verifyConversion(probe, outProbe);
+            if (!ok) {
+                sambaService.rename(backupSmbUri, smbUri, cfg);
+                job.setStatus("FAILED");
+                job.setFinishedAt(System.currentTimeMillis());
+                job.setLogsPath("stdout:verification-failed");
+                log.warn("Job {} failed: staged output verification did not pass for [{}]", job.getId(), smbUri);
+                Job saved = jobRepository.save(job);
+                try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
+                return;
+            }
+
+            sambaService.uploadFromLocal(localOut, smbUri, cfg);
+
+            JsonNode uploadedProbe = sambaService.withFileInputStream(smbUri, cfg, probeService::probeStream);
+            if (!verifyConversion(probe, uploadedProbe)) {
+                sambaService.rename(backupSmbUri, smbUri, cfg);
+                job.setStatus("FAILED");
+                job.setFinishedAt(System.currentTimeMillis());
+                job.setLogsPath("stdout:verification-failed");
+                log.warn("Job {} failed: uploaded SMB output verification did not pass for [{}]", job.getId(), smbUri);
+                Job saved = jobRepository.save(job);
+                try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
+                return;
+            }
+
+            try { sambaService.delete(backupSmbUri, cfg); } catch (Exception ignored) {}
+            renamedToBackup = false;
+
+            job.setStatus("DONE");
+            job.setFinishedAt(System.currentTimeMillis());
+            job.setLogsPath("stdout");
+            log.info("Job {} completed successfully for staged SMB path [{}]", job.getId(), smbUri);
+            Job saved = jobRepository.save(job);
+            try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
+        } catch (Exception e) {
+            if (renamedToBackup && backupSmbUri != null) {
+                try {
+                    ScanPathSettingsService.SambaConfig cfg = scanPathSettingsService.getSambaConfig();
+                    sambaService.rename(backupSmbUri, smbUri, cfg);
+                } catch (Exception restoreEx) {
+                    log.error("Job {} could not restore SMB backup [{}] -> [{}]", job.getId(), backupSmbUri, smbUri, restoreEx);
+                }
+            }
+            job.setStatus("FAILED");
+            job.setFinishedAt(System.currentTimeMillis());
+            job.setLogsPath("stdout:exception");
+            log.error("Job {} failed with SMB exception for [{}]", job.getId(), smbUri, e);
+            Job savedEx = jobRepository.save(job);
+            try { jobEventService.publishJob(savedEx); } catch (Exception ignored) {}
+        } finally {
+            try { Files.deleteIfExists(localBackup); } catch (Exception ignored) {}
+            try { Files.deleteIfExists(localOut); } catch (Exception ignored) {}
+        }
+    }
+
     private boolean verifyConversion(JsonNode before, JsonNode after) {
         // before/after only have audio streams (we probed with -select_streams a)
         try {
             var bStreams = before.path("streams");
             var aStreams = after.path("streams");
-            if (!bStreams.isArray() || !aStreams.isArray()) return true; // nothing to verify
+            if (!bStreams.isArray() || !aStreams.isArray()) return false;
+            if (aStreams.size() < bStreams.size()) return false;
+
+            double beforeDuration = before.path("format").path("duration").asDouble(0d);
+            double afterDuration = after.path("format").path("duration").asDouble(0d);
+            // Guard against truncated outputs: output should be roughly same length as input.
+            if (beforeDuration > 1d && afterDuration > 0d) {
+                double ratio = afterDuration / beforeDuration;
+                if (ratio < 0.95d) return false;
+            }
+
             int n = Math.min(bStreams.size(), aStreams.size());
             for (int i = 0; i < n; i++) {
                 String beforeCodec = bStreams.get(i).path("codec_name").asText("");

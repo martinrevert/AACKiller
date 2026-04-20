@@ -6,6 +6,7 @@ Summary
 - Recursively probe a configured directory for MKV files that contain AAC audio.
 - Index matching files in a persistent job table and process them with a worker.
 - Safe replace: originals are renamed to a backup (`<basename>AAC.mkv` or `.bak.mkv`), conversion writes a `.tmp.mkv` and is atomically moved into place on success.
+- SMB reliability mode: for `smb://` jobs the worker uses SMBJ to rename/download/upload files, while `ffmpeg` runs only on local `work/` files to avoid direct `ffmpeg smb://` instability.
 - Exposes REST control and job APIs (start/stop/status/clear-index + create/list/delete jobs).
 - Persistence: file-backed H2 (default `data/aac2ac3.mv.db`) to avoid reprocessing after restarts.
 
@@ -52,6 +53,7 @@ Components
 - `JobController` — create/list/delete job records.
 - `IndexerService` — recursively probes `index.scanPath` for `.mkv` files containing AAC audio and creates `PENDING` jobs.
 - `WorkerService` — claims `PENDING` jobs and runs the conversion pipeline (rename -> ffmpeg -> verify -> replace).
+- `SambaService` — SMBJ-based directory listing, rename/delete, and file transfer used by scanner and SMB conversion flow.
 - `FfmpegCommandBuilder` / `FfmpegRunner` — build and run the ffmpeg command line.
 
 
@@ -205,7 +207,7 @@ Key properties and environment variables
 - `ffmpeg.threads` / `FFMPEG_THREADS` — threads requested per `ffmpeg` process (default `1`). If set to `0` the app falls back to `worker.maxConcurrency`.
 	- Implication: total CPU usage roughly equals `worker.maxConcurrency * ffmpeg.threads`. Set conservatively to avoid oversubscription. Some `ffmpeg` codecs ignore the thread flag; measure CPU utilization to tune.
 
-- `ffmpeg.timeout.seconds` — maximum seconds to let `ffmpeg` run for a job (default `7200`).
+- `ffmpeg.timeout.seconds` — maximum seconds to let `ffmpeg` run for a job (default `21600`).
 	- Implication: too-low values may abort conversions for large files; too-high values keep hung processes longer.
 
 - `spring.datasource.url` — JDBC URL for the job index (default points to a file-backed H2 database under `data/`).

@@ -18,11 +18,13 @@ public final class FfmpegCommandBuilder {
         cmd.add("ffmpeg");
         cmd.add("-hide_banner");
         cmd.add("-y");
+        cmd.add("-xerror");
         cmd.add("-i");
         cmd.add(input.getAbsolutePath());
         cmd.add("-map"); cmd.add("0");
-        cmd.add("-c:v"); cmd.add("copy");
-        cmd.add("-c:s"); cmd.add("copy");
+        cmd.add("-map_metadata"); cmd.add("0");
+        cmd.add("-map_chapters"); cmd.add("0");
+        cmd.add("-c"); cmd.add("copy");
         // convert all audio to ac3 (simple default)
         cmd.add("-c:a"); cmd.add("ac3");
         cmd.add("-b:a"); cmd.add("192k");
@@ -37,15 +39,21 @@ public final class FfmpegCommandBuilder {
      * The provided probe JSON should include only audio streams (probe called with -select_streams a).
      */
     public static List<String> buildFromProbe(JsonNode probe, File input, File output, int threads) {
+        return buildFromProbe(probe, input.getAbsolutePath(), output.getAbsolutePath(), threads);
+    }
+
+    public static List<String> buildFromProbe(JsonNode probe, String inputPath, String outputPath, int threads) {
         List<String> cmd = new ArrayList<>();
         cmd.add("ffmpeg");
         cmd.add("-hide_banner");
         cmd.add("-y");
+        cmd.add("-xerror");
         cmd.add("-i");
-        cmd.add(input.getAbsolutePath());
+        cmd.add(inputPath);
         cmd.add("-map"); cmd.add("0");
-        cmd.add("-c:v"); cmd.add("copy");
-        cmd.add("-c:s"); cmd.add("copy");
+        cmd.add("-map_metadata"); cmd.add("0");
+        cmd.add("-map_chapters"); cmd.add("0");
+        cmd.add("-c"); cmd.add("copy");
 
         JsonNode streams = probe.path("streams");
         if (!streams.isArray() || streams.size() == 0) {
@@ -72,7 +80,7 @@ public final class FfmpegCommandBuilder {
         }
 
         cmd.add("-threads"); cmd.add(String.valueOf(threads));
-        cmd.add(output.getAbsolutePath());
+        cmd.add(outputPath);
         return cmd;
     }
 }

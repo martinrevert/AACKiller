@@ -31,6 +31,60 @@
         <button id="clearBtn" class="btn danger">Clear Index</button>
       </div>
       <div id="statusArea" class="status">Status: <span id="statusText">unknown</span></div>
+
+      <div id="scanConfigSection" class="scan-config hidden">
+        <h3>Scan Directory (Worker Stopped)</h3>
+        <div class="form-row">
+          <label for="scanMode">Mode</label>
+          <select id="scanMode">
+            <option value="local">Local Filesystem</option>
+            <option value="smb">Samba (SMB)</option>
+          </select>
+        </div>
+
+        <div id="localPathArea" class="form-row">
+          <label for="localPathInput">Local Path</label>
+          <input id="localPathInput" type="text" placeholder="/mnt/media" />
+        </div>
+
+        <div id="smbArea" class="hidden">
+          <div class="form-row">
+            <label for="smbHostInput">SMB Host</label>
+            <input id="smbHostInput" type="text" placeholder="192.168.1.20" />
+          </div>
+          <div class="form-row">
+            <label for="smbShareInput">Share</label>
+            <input id="smbShareInput" type="text" placeholder="Media" />
+          </div>
+          <div class="form-row">
+            <label for="smbPathInput">Directory</label>
+            <input id="smbPathInput" type="text" placeholder="Movies/Action" />
+          </div>
+          <div class="form-row">
+            <label for="smbUserInput">Username</label>
+            <input id="smbUserInput" type="text" placeholder="smb-user" />
+          </div>
+          <div class="form-row">
+            <label for="smbPassInput">Password</label>
+            <input id="smbPassInput" type="password" placeholder="password" />
+          </div>
+          <div class="form-row">
+            <label for="smbDomainInput">Domain</label>
+            <input id="smbDomainInput" type="text" placeholder="WORKGROUP (optional)" />
+          </div>
+          <div class="btn-row">
+            <button id="browseSmbBtn" class="btn">Browse SMB Directories</button>
+            <button id="testSmbBtn" class="btn">Test SMB Connection</button>
+          </div>
+          <div id="smbBrowseArea" class="muted"></div>
+          <div id="smbTestArea" class="muted"></div>
+        </div>
+
+        <div class="btn-row">
+          <button id="saveScanBtn" class="btn primary">Save Scan Directory</button>
+        </div>
+        <small class="muted">Saving a new scan directory automatically clears the index.</small>
+      </div>
     </section>
 
     <section class="info">

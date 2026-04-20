@@ -28,8 +28,11 @@ public class DirectoryWatcherService {
     @Autowired
     private ar.com.martinrevert.aac2ac3.service.JobEventService jobEventService;
 
-    @Value("${index.scanPath:samples}")
-    private String scanPath;
+    @Autowired
+    private ScanPathSettingsService scanPathSettingsService;
+
+    @Autowired
+    private SambaService sambaService;
 
     @Value("${index.watchEnabled:true}")
     private boolean watchEnabled;
@@ -59,6 +62,11 @@ public class DirectoryWatcherService {
         if (running) return;
 
         try {
+            String scanPath = scanPathSettingsService.getScanPath();
+            if (scanPath != null && scanPath.toLowerCase().startsWith("smb://")) {
+                log.info("Directory watcher is disabled for SMB scan paths; indexing runs on worker start");
+                return;
+            }
             Path root = Path.of(scanPath);
             if (!Files.exists(root)) Files.createDirectories(root);
             watchService = FileSystems.getDefault().newWatchService();

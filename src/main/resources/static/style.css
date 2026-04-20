@@ -20,9 +20,14 @@ header h1{margin:0;font-size:22px}
 .muted{color:var(--muted)}
 section{margin-top:18px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.02)}
 .btn-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.btn{padding:10px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--text);cursor:pointer;min-width:44px}
+.btn{padding:10px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--text);cursor:pointer;min-width:44px;transition:transform .15s ease, box-shadow .2s ease, opacity .2s ease}
 .btn.primary{background:linear-gradient(90deg,var(--accent),#7c3aed);font-weight:600}
 .btn.danger{background:linear-gradient(90deg,var(--danger),#b91c1c)}
+.btn:hover{transform:translateY(-1px);box-shadow:0 10px 20px rgba(2,6,23,.35)}
+.btn:active{transform:translateY(0) scale(.98)}
+.btn:disabled{opacity:.75;cursor:not-allowed}
+.btn.is-loading{position:relative;padding-left:36px}
+.btn.is-loading::before{content:'';position:absolute;left:12px;top:50%;width:14px;height:14px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;transform:translateY(-50%);animation:spin .8s linear infinite}
 .status{margin-top:8px}
 #statusArea{word-break:break-word}
 #jobsArea{margin-top:12px;overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -31,7 +36,38 @@ table{width:100%;border-collapse:collapse}
 th,td{padding:8px 10px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.03);font-size:13px}
 .form-row{display:flex;gap:8px;align-items:center}
 input[type=text]{flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:rgba(255,255,255,0.02);color:var(--text);min-width:0}
+input[type=password],select{flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:rgba(255,255,255,0.02);color:var(--text);min-width:0}
 footer{margin-top:16px;color:var(--muted);font-size:12px}
+.hidden{display:none}
+
+.scan-config{margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08)}
+.scan-config h3{margin:0 0 8px 0;font-size:16px}
+.scan-config label{min-width:120px;color:var(--muted);font-size:13px}
+
+#smbBrowseArea{margin-top:8px;padding:8px;border-radius:8px;background:rgba(255,255,255,0.02)}
+#smbTestArea{margin-top:8px;padding:8px;border-radius:8px;background:rgba(255,255,255,0.02)}
+#smbBrowseArea.info{border:1px solid rgba(14,165,233,.35);background:rgba(14,165,233,.12)}
+#smbBrowseArea.ok{border:1px solid rgba(34,197,94,.35);background:rgba(34,197,94,.12)}
+#smbBrowseArea.err{border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.12)}
+#smbTestArea.info{border:1px solid rgba(14,165,233,.35);background:rgba(14,165,233,.12)}
+#smbTestArea.ok{border:1px solid rgba(34,197,94,.35);background:rgba(34,197,94,.12)}
+#smbTestArea.err{border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.12)}
+.smb-item{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+.smb-item:last-child{border-bottom:none}
+.smb-test-summary{font-weight:600;margin-bottom:8px}
+.smb-step{display:grid;grid-template-columns:110px 54px 1fr;gap:8px;align-items:start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px}
+.smb-step:last-child{border-bottom:none}
+.smb-step .name{text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-size:11px}
+.smb-step .badge{display:inline-block;text-align:center;padding:2px 6px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(148,163,184,.35)}
+.smb-step.ok .badge{background:rgba(34,197,94,.25);color:#dcfce7}
+.smb-step.fail .badge{background:rgba(239,68,68,.25);color:#fee2e2}
+.smb-step .msg{word-break:break-word}
+
+.toast-host{position:fixed;right:14px;bottom:14px;display:flex;flex-direction:column;gap:8px;z-index:2000;max-width:min(520px,92vw)}
+.toast{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(2,6,23,.92);color:var(--text);box-shadow:0 14px 30px rgba(2,6,23,.5);animation:toastIn .22s ease}
+.toast.success{border-color:rgba(34,197,94,.45);background:rgba(21,128,61,.92)}
+.toast.error{border-color:rgba(239,68,68,.45);background:rgba(153,27,27,.92)}
+.toast.hide{animation:toastOut .24s ease forwards}
 
 .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px}
 .badge.pending{background:#f59e0b;color:#111}
@@ -80,5 +116,9 @@ footer{margin-top:16px;color:var(--muted);font-size:12px}
 @media (max-width: 720px) {
   #jobsArea table{display:none}
 }
+
+@keyframes spin{to{transform:translateY(-50%) rotate(360deg)}}
+@keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes toastOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(8px)}}
 
 
