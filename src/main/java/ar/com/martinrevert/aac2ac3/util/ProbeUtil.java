@@ -110,4 +110,54 @@ public final class ProbeUtil {
             pumpExecutor.shutdownNow();
         }
     }
+
+    public static JsonNode probeStreamAudioOnly(InputStream inputStream) throws Exception {
+        if (inputStream == null) {
+            throw new IllegalArgumentException("inputStream is required");
+        }
+
+        String ffprobe = System.getProperty("ffprobe.path");
+        if (ffprobe == null || ffprobe.isBlank()) ffprobe = "ffprobe";
+
+        ProcessBuilder pb = new ProcessBuilder(
+                ffprobe,
+                "-v", "error",
+                "-analyzeduration", "10M",
+                "-probesize", "10M",
+                "-select_streams", "a",
+                "-show_entries", "stream=index,codec_name,channels",
+                "-of", "json",
+                "-i", "pipe:0"
+        );
+
+        Process p = pb.start();
+        ExecutorService pumpExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch pumpDone = new CountDownLatch(1);
+        pumpExecutor.submit(() -> {
+            try (InputStream in = inputStream; OutputStream procIn = p.getOutputStream()) {
+                in.transferTo(procIn);
+            } catch (Exception ignored) {
+            } finally {
+                pumpDone.countDown();
+            }
+        });
+
+        try (BufferedReader outReader = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8));
+             BufferedReader errReader = new BufferedReader(new InputStreamReader(p.getErrorStream(), StandardCharsets.UTF_8))) {
+            String out = outReader.lines().collect(Collectors.joining("\n"));
+            String err = errReader.lines().collect(Collectors.joining("\n"));
+            int rc = p.waitFor();
+            pumpDone.await(5, TimeUnit.SECONDS);
+            if (rc != 0) {
+                String msg = "ffprobe failed (rc=" + rc + ")";
+                if (!err.isBlank()) {
+                    msg += ": " + err;
+                }
+                throw new RuntimeException(msg);
+            }
+            return MAPPER.readTree(out);
+        } finally {
+            pumpExecutor.shutdownNow();
+        }
+    }
 }

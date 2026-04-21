@@ -142,7 +142,8 @@ public class DirectoryWatcherService {
                 }
 
                 String lower = child.toString().toLowerCase();
-                if (lower.endsWith(".mkv") && (kind == StandardWatchEventKinds.ENTRY_CREATE || kind == StandardWatchEventKinds.ENTRY_MODIFY)) {
+                if ((lower.endsWith(".mkv") || lower.endsWith(".mp4"))
+                        && (kind == StandardWatchEventKinds.ENTRY_CREATE || kind == StandardWatchEventKinds.ENTRY_MODIFY)) {
                     submitProbeTask(child, 0);
                 }
             }
@@ -162,7 +163,9 @@ public class DirectoryWatcherService {
                 if (absPath.startsWith(WORK_DIR) || absPath.startsWith(LOG_DIR)) return;
                 String filenameLower = file.getFileName().toString().toLowerCase();
                 // skip temporary/backup files produced by the worker
-                if (filenameLower.endsWith(".tmp.mkv") || filenameLower.endsWith(".bak.mkv") || (filenameLower.startsWith("job-") && (filenameLower.contains("-tmp") || filenameLower.contains("-backup")))) return;
+                if (filenameLower.endsWith(".tmp.mkv") || filenameLower.endsWith(".tmp.mp4")
+                    || filenameLower.endsWith(".bak.mkv") || filenameLower.endsWith(".bak.mp4")
+                    || (filenameLower.startsWith("job-") && (filenameLower.contains("-tmp") || filenameLower.contains("-backup")))) return;
 
                 JsonNode probe = probeService.probe(file.toFile());
                 var streams = probe.path("streams");

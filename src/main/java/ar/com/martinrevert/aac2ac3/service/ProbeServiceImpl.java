@@ -23,4 +23,9 @@ public class ProbeServiceImpl implements ProbeService {
     public JsonNode probeStream(InputStream inputStream) throws Exception {
         return ProbeUtil.probeStream(inputStream);
     }
+
+    @Override
+    public JsonNode probeStreamAudioOnly(InputStream inputStream) throws Exception {
+        return ProbeUtil.probeStreamAudioOnly(inputStream);
+    }
 }

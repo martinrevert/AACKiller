@@ -69,7 +69,7 @@ public class WorkerService {
             poller = Executors.newSingleThreadExecutor();
             workerPool = Executors.newFixedThreadPool(Math.max(1, maxConcurrency));
             poller.submit(this::loop);
-            // start directory watcher to auto-enqueue new .mkv files
+            // start directory watcher to auto-enqueue new .mkv/.mp4 files
             try { directoryWatcherService.start(); } catch (Exception ignored) {}
             try { jobEventService.publishWorkerStatus("running"); } catch (Exception ignored) {}
         }
@@ -131,7 +131,8 @@ public class WorkerService {
             Path workDir = Path.of("work");
             try { Files.createDirectories(workDir); } catch (Exception ignored) {}
 
-            Path backup = workDir.resolve("job-" + job.getId() + "-backup.mkv");
+            String inputExt = extensionForPath(name);
+            Path backup = workDir.resolve("job-" + job.getId() + "-backup" + inputExt);
             // move original to backup location (into work dir)
             try {
                 Files.move(input, backup, StandardCopyOption.ATOMIC_MOVE);
@@ -143,7 +144,7 @@ public class WorkerService {
             // probe backup for audio streams
             JsonNode probe = probeService.probe(backup.toFile());
 
-            Path tmpOut = workDir.resolve("job-" + job.getId() + "-tmp.mkv");
+            Path tmpOut = workDir.resolve("job-" + job.getId() + "-tmp" + inputExt);
 
             int threadsToUse = ffmpegThreads > 0 ? ffmpegThreads : Math.max(1, maxConcurrency);
             List<String> cmd = FfmpegCommandBuilder.buildFromProbe(probe, backup.toFile(), tmpOut.toFile(), threadsToUse);
@@ -200,9 +201,10 @@ public class WorkerService {
 
     private void processSmbJob(Job job) {
         String smbUri = job.getFilePath();
+        String smbExt = extensionForPath(smbUri);
         Path workDir = Path.of("work");
-        Path localBackup = workDir.resolve("job-" + job.getId() + "-smb-backup.mkv");
-        Path localOut = workDir.resolve("job-" + job.getId() + "-smb-out.mkv");
+        Path localBackup = workDir.resolve("job-" + job.getId() + "-smb-backup" + smbExt);
+        Path localOut = workDir.resolve("job-" + job.getId() + "-smb-out" + smbExt);
         String backupSmbUri = null;
         boolean renamedToBackup = false;
 
@@ -345,5 +347,11 @@ public class WorkerService {
     @PreDestroy
     public void shutdown() {
         stop();
+    }
+
+    private static String extensionForPath(String path) {
+        String lower = path == null ? "" : path.toLowerCase();
+        if (lower.endsWith(".mp4")) return ".mp4";
+        return ".mkv";
     }
 }

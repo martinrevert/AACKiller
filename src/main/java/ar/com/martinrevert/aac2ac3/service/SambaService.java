@@ -50,7 +50,7 @@ public class SambaService {
         return out;
     }
 
-    public List<String> listMkvRecursively(String smbRootUri, ScanPathSettingsService.SambaConfig cfg) throws IOException {
+    public List<String> listMediaRecursively(String smbRootUri, ScanPathSettingsService.SambaConfig cfg) throws IOException {
         ParsedSmbPath root = parseUri(smbRootUri);
         List<String> out = new ArrayList<>();
         ArrayDeque<String> queue = new ArrayDeque<>();
@@ -59,14 +59,22 @@ public class SambaService {
         withShare(root.host(), root.share(), cfg.username(), cfg.password(), cfg.domain(), share -> {
             while (!queue.isEmpty()) {
                 String relDir = queue.removeFirst();
-                for (FileIdBothDirectoryInformation info : listDirectory(share, relDir)) {
+                List<FileIdBothDirectoryInformation> entries;
+                try {
+                    entries = listDirectory(share, relDir);
+                } catch (RuntimeException ex) {
+                    log.warn("Skipping SMB directory due to list error host={} share={} dir={}", root.host(), root.share(), relDir, ex);
+                    continue;
+                }
+
+                for (FileIdBothDirectoryInformation info : entries) {
                     String name = info.getFileName();
                     if (".".equals(name) || "..".equals(name)) continue;
                     boolean isDir = EnumWithValue.EnumUtils.isSet(info.getFileAttributes(), FileAttributes.FILE_ATTRIBUTE_DIRECTORY);
                     String childRel = relDir.isBlank() ? name : relDir + "/" + name;
                     if (isDir) {
                         queue.addLast(childRel);
-                    } else if (name.toLowerCase().endsWith(".mkv")) {
+                    } else if (isMediaCandidate(name)) {
                         out.add(buildUri(root.host(), root.share(), childRel));
                     }
                 }
@@ -290,6 +298,11 @@ public class SambaService {
             String altRoot = "\\".equals(winPath) ? "" : "\\";
             return share.list(altRoot);
         }
+    }
+
+    private static boolean isMediaCandidate(String name) {
+        String lower = name == null ? "" : name.toLowerCase();
+        return lower.endsWith(".mkv") || lower.endsWith(".mp4");
     }
 
     private <T> T withShare(String host, String shareName, String username, String password, String domain, ShareCall<T> call) throws IOException {

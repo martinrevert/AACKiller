@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 @RequestMapping("/api/v1/control")
 public class ControlController {
     private static final Logger log = LoggerFactory.getLogger(ControlController.class);
-    private static final Pattern BACKUP_SUFFIX_PATTERN = Pattern.compile("\\.aac2ac3-backup-\\d+(?=\\.mkv$)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern BACKUP_SUFFIX_PATTERN = Pattern.compile("\\.aac2ac3-backup-\\d+(?=\\.(mkv|mp4)$)", Pattern.CASE_INSENSITIVE);
 
     @Autowired
     private WorkerService workerService;
@@ -325,7 +325,7 @@ public class ControlController {
         try {
             if (smbMode) {
                 ScanPathSettingsService.SambaConfig cfg = scanPathSettingsService.getSambaConfig();
-                List<String> all = sambaService.listMkvRecursively(scanPath, cfg);
+                List<String> all = sambaService.listMediaRecursively(scanPath, cfg);
                 for (String backupUri : all) {
                     String originalUri = restoreTargetPath(backupUri);
                     if (Objects.equals(backupUri, originalUri)) {
@@ -375,12 +375,15 @@ public class ControlController {
                 }
 
                 try (var stream = Files.walk(root)) {
-                    List<Path> mkvFiles = stream
+                        List<Path> mediaFiles = stream
                             .filter(Files::isRegularFile)
-                            .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".mkv"))
+                            .filter(p -> {
+                            String lower = p.getFileName().toString().toLowerCase();
+                            return lower.endsWith(".mkv") || lower.endsWith(".mp4");
+                            })
                             .toList();
 
-                    for (Path backupPath : mkvFiles) {
+                        for (Path backupPath : mediaFiles) {
                         String originalStr = restoreTargetPath(backupPath.toString());
                         if (Objects.equals(backupPath.toString(), originalStr)) {
                             continue;

@@ -11,4 +11,6 @@ public interface ProbeService {
     JsonNode probePath(String inputPath) throws Exception;
 
     JsonNode probeStream(InputStream inputStream) throws Exception;
+
+    JsonNode probeStreamAudioOnly(InputStream inputStream) throws Exception;
 }
