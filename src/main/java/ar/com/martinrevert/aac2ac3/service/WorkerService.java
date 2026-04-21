@@ -143,6 +143,16 @@ public class WorkerService {
 
             // probe backup for audio streams
             JsonNode probe = probeService.probe(backup.toFile());
+            if (!containsAacAudio(probe)) {
+                Files.move(backup, input, StandardCopyOption.REPLACE_EXISTING);
+                job.setStatus("FAILED");
+                job.setFinishedAt(System.currentTimeMillis());
+                job.setLogsPath("stdout:no-aac-audio");
+                log.info("Job {} skipped conversion: no AAC audio streams in [{}]", job.getId(), job.getFilePath());
+                Job saved = jobRepository.save(job);
+                try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
+                return;
+            }
 
             Path tmpOut = workDir.resolve("job-" + job.getId() + "-tmp" + inputExt);
 
@@ -240,6 +250,16 @@ public class WorkerService {
             // Keep SMB for source/target storage but run ffmpeg on local disk for reliability.
             sambaService.downloadToLocal(backupSmbUri, cfg, localBackup);
             JsonNode probe = probeService.probe(localBackup.toFile());
+            if (!containsAacAudio(probe)) {
+                sambaService.rename(backupSmbUri, smbUri, cfg);
+                job.setStatus("FAILED");
+                job.setFinishedAt(System.currentTimeMillis());
+                job.setLogsPath("stdout:no-aac-audio");
+                log.info("Job {} skipped conversion: no AAC audio streams in [{}]", job.getId(), smbUri);
+                Job saved = jobRepository.save(job);
+                try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
+                return;
+            }
 
             int threadsToUse = ffmpegThreads > 0 ? ffmpegThreads : Math.max(1, maxConcurrency);
             List<String> cmd = FfmpegCommandBuilder.buildFromProbe(probe, localBackup.toFile(), localOut.toFile(), threadsToUse);
@@ -353,5 +373,19 @@ public class WorkerService {
         String lower = path == null ? "" : path.toLowerCase();
         if (lower.endsWith(".mp4")) return ".mp4";
         return ".mkv";
+    }
+
+    private static boolean containsAacAudio(JsonNode probe) {
+        JsonNode streams = probe.path("streams");
+        if (!streams.isArray() || streams.size() == 0) {
+            return false;
+        }
+        for (JsonNode stn : streams) {
+            String codec = stn.path("codec_name").asText("");
+            if ("aac".equalsIgnoreCase(codec)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
