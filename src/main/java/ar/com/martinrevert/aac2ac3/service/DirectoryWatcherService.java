@@ -13,11 +13,13 @@ import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import java.util.concurrent.*;
 
 @Service
 public class DirectoryWatcherService {
     private static final Logger log = LoggerFactory.getLogger(DirectoryWatcherService.class);
+    private static final Pattern AAC2AC3_BACKUP_SUFFIX_PATTERN = Pattern.compile("\\.aac2ac3-backup-\\d+(?=\\.(mkv|mp4)$)", Pattern.CASE_INSENSITIVE);
 
     @Autowired
     private JobRepository jobRepository;
@@ -165,6 +167,7 @@ public class DirectoryWatcherService {
                 // skip temporary/backup files produced by the worker
                 if (filenameLower.endsWith(".tmp.mkv") || filenameLower.endsWith(".tmp.mp4")
                     || filenameLower.endsWith(".bak.mkv") || filenameLower.endsWith(".bak.mp4")
+                    || AAC2AC3_BACKUP_SUFFIX_PATTERN.matcher(filenameLower).find()
                     || (filenameLower.startsWith("job-") && (filenameLower.contains("-tmp") || filenameLower.contains("-backup")))) return;
 
                 JsonNode probe = probeService.probe(file.toFile());

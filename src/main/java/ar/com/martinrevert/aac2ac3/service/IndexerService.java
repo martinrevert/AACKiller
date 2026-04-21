@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import java.nio.file.FileVisitResult;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -21,6 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Service
 public class IndexerService {
     private static final Logger log = LoggerFactory.getLogger(IndexerService.class);
+    private static final Pattern AAC2AC3_BACKUP_SUFFIX_PATTERN = Pattern.compile("\\.aac2ac3-backup-\\d+(?=\\.(mkv|mp4)$)", Pattern.CASE_INSENSITIVE);
 
     @Autowired
     private JobRepository jobRepository;
@@ -176,6 +178,10 @@ public class IndexerService {
 
             for (String smbFileUri : smbCandidates) {
                 try {
+                    if (isSmbTemporaryOrBackupCandidate(smbFileUri)) {
+                        continue;
+                    }
+
                     Optional<Job> existing = jobRepository.findByFilePath(smbFileUri);
                     if (existing.isPresent()) {
                         String st = existing.get().getStatus();
@@ -259,7 +265,15 @@ public class IndexerService {
     private static boolean isTemporaryOrBackupFile(String filenameLower) {
         if (filenameLower.endsWith(".tmp.mkv") || filenameLower.endsWith(".tmp.mp4")) return true;
         if (filenameLower.endsWith(".bak.mkv") || filenameLower.endsWith(".bak.mp4")) return true;
+        if (AAC2AC3_BACKUP_SUFFIX_PATTERN.matcher(filenameLower).find()) return true;
         return filenameLower.startsWith("job-") && (filenameLower.contains("-tmp") || filenameLower.contains("-backup"));
+    }
+
+    private static boolean isSmbTemporaryOrBackupCandidate(String smbUri) {
+        if (smbUri == null || smbUri.isBlank()) return false;
+        int slash = smbUri.lastIndexOf('/');
+        String name = slash >= 0 ? smbUri.substring(slash + 1) : smbUri;
+        return isTemporaryOrBackupFile(name.toLowerCase());
     }
 
     private static boolean containsAacAudio(JsonNode probe) {
