@@ -1,6 +1,7 @@
 package ar.com.martinrevert.aac2ac3.api;
 
 import ar.com.martinrevert.aac2ac3.infra.JobRepository;
+import ar.com.martinrevert.aac2ac3.infra.ProbeIndexRepository;
 import ar.com.martinrevert.aac2ac3.service.WorkerService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
@@ -52,15 +53,18 @@ public class ControlControllerTest {
     public void clearIndex_stopsWorker_andDeletesAll() {
         WorkerService worker = mock(WorkerService.class);
         JobRepository repo = mock(JobRepository.class);
+        ProbeIndexRepository probeIndexRepo = mock(ProbeIndexRepository.class);
 
         ControlController ctrl = new ControlController();
         ReflectionTestUtils.setField(ctrl, "workerService", worker);
         ReflectionTestUtils.setField(ctrl, "jobRepository", repo);
+        ReflectionTestUtils.setField(ctrl, "probeIndexRepository", probeIndexRepo);
 
         ResponseEntity<String> resp = ctrl.clearIndex();
 
         verify(worker, times(1)).stop();
         verify(repo, times(1)).deleteAll();
+        verify(probeIndexRepo, times(1)).deleteAll();
         assertEquals(200, resp.getStatusCode().value());
         assertEquals("index cleared", resp.getBody());
     }

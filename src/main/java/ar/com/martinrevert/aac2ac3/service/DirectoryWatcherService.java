@@ -2,6 +2,7 @@ package ar.com.martinrevert.aac2ac3.service;
 
 import ar.com.martinrevert.aac2ac3.infra.JobRepository;
 import ar.com.martinrevert.aac2ac3.model.Job;
+import ar.com.martinrevert.aac2ac3.model.ProbeIndexEntry;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,6 +36,9 @@ public class DirectoryWatcherService {
 
     @Autowired
     private SambaService sambaService;
+
+    @Autowired
+    private ProbeIndexService probeIndexService;
 
     @Value("${index.watchEnabled:true}")
     private boolean watchEnabled;
@@ -168,53 +172,66 @@ public class DirectoryWatcherService {
                 if (filenameLower.endsWith(".tmp.mkv") || filenameLower.endsWith(".tmp.mp4")
                     || filenameLower.endsWith(".bak.mkv") || filenameLower.endsWith(".bak.mp4")
                     || AAC2AC3_BACKUP_SUFFIX_PATTERN.matcher(filenameLower).find()
-                    || (filenameLower.startsWith("job-") && (filenameLower.contains("-tmp") || filenameLower.contains("-backup")))) return;
+                    || (filenameLower.startsWith("job-") && (filenameLower.contains("-tmp") || filenameLower.contains("-backup")))) {
+                    log.debug("watch-skip file={} reason=temporary-or-backup", absPathStr);
+                    return;
+                }
+
+                long fileSize = Files.size(file);
+                long fileMtime = Files.getLastModifiedTime(file).toMillis();
+
+                Optional<ProbeIndexEntry> reusable = probeIndexService.findReusableLocal(absPathStr, fileSize, fileMtime);
+                if (reusable.isPresent()) {
+                    ProbeIndexEntry entry = reusable.get();
+                    if (ProbeIndexService.STATUS_AAC_MATCH.equals(entry.getProbeStatus())) {
+                        log.debug("watch-skip-probe file={} reason=index-hit-positive codec={}", absPathStr, entry.getDetectedCodec());
+                        enqueueIfEligible(absPathStr);
+                        return;
+                    }
+                    if (ProbeIndexService.STATUS_NO_AAC.equals(entry.getProbeStatus())) {
+                        log.debug("watch-skip file={} reason=index-hit-negative codec={} skipReason={}",
+                                absPathStr,
+                                entry.getDetectedCodec(),
+                                entry.getSkipReason());
+                        return;
+                    }
+                }
 
                 JsonNode probe = probeService.probe(file.toFile());
-                var streams = probe.path("streams");
-                if (!streams.isArray() || streams.size() == 0) return;
-                boolean hasAac = false;
-                for (JsonNode st : streams) {
-                    String codec = st.path("codec_name").asText("");
-                    if ("aac".equalsIgnoreCase(codec)) { hasAac = true; break; }
+                ProbeIndexService.ProbeClassification classification = probeIndexService.classifyProbe(probe);
+                probeIndexService.upsertLocal(
+                        absPathStr,
+                        classification.probeStatus(),
+                        classification.detectedCodec(),
+                        classification.skipReason(),
+                        fileSize,
+                        fileMtime);
+                if (!classification.hasAac()) {
+                    log.debug("watch-skip file={} reason=non-aac codec={} skipReason={}",
+                            absPathStr,
+                            classification.detectedCodec(),
+                            classification.skipReason());
+                    return;
                 }
-                if (!hasAac) return;
 
                 String abs = absPathStr;
                 // Use a shared per-path lock to avoid races where multiple threads create the same job
-                Object lock = jobEventService.pathLocks.computeIfAbsent(abs, k -> new Object());
-                try {
-                    synchronized (lock) {
-                        Optional<Job> existing = jobRepository.findByFilePath(abs);
-                        if (existing.isPresent()) {
-                            String s = existing.get().getStatus();
-                            if ("DONE".equals(s) || "PENDING".equals(s) || "RUNNING".equals(s)) {
-                                return;
-                            }
-                        }
-                        Job j = new Job();
-                        j.setFilePath(abs);
-                        j.setStatus("PENDING");
-                        j.setCreatedAt(System.currentTimeMillis());
-                        Job saved;
-                        try {
-                            saved = jobRepository.save(j);
-                        } catch (org.springframework.dao.DataIntegrityViolationException | jakarta.persistence.PersistenceException ex) {
-                            // another thread/process inserted the same path concurrently; load existing
-                            var existingJob = jobRepository.findByFilePath(abs);
-                            if (existingJob.isPresent()) {
-                                saved = existingJob.get();
-                            } else {
-                                throw ex;
-                            }
-                        }
-                        try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
-                        log.info("DirectoryWatcherService enqueued job: {}", abs);
-                    }
-                } finally {
-                    jobEventService.pathLocks.remove(abs, lock);
-                }
+                enqueueIfEligible(abs);
             } catch (Exception e) {
+                try {
+                    if (Files.exists(file)) {
+                        long fileSize = Files.size(file);
+                        long fileMtime = Files.getLastModifiedTime(file).toMillis();
+                        String absPathStr = jobEventService.canonicalizePath(file);
+                        probeIndexService.upsertLocal(
+                                absPathStr,
+                                ProbeIndexService.STATUS_PROBE_ERROR,
+                                ProbeIndexService.CODEC_UNKNOWN,
+                                "probe-exception",
+                                fileSize,
+                                fileMtime);
+                    }
+                } catch (Exception ignored) {}
                 if (attempt < probeRetries) {
                     if (scheduledExecutor != null) {
                         scheduledExecutor.schedule(() -> submitProbeTask(file, attempt + 1), probeRetryDelayMs, TimeUnit.MILLISECONDS);
@@ -224,6 +241,43 @@ public class DirectoryWatcherService {
                 }
             }
         });
+    }
+
+    private void enqueueIfEligible(String absPath) {
+        Object lock = jobEventService.pathLocks.computeIfAbsent(absPath, k -> new Object());
+        try {
+            synchronized (lock) {
+                Optional<Job> existing = jobRepository.findByFilePath(absPath);
+                if (existing.isPresent()) {
+                    String s = existing.get().getStatus();
+                    if ("DONE".equals(s) || "PENDING".equals(s) || "RUNNING".equals(s)) {
+                        log.debug("watch-skip file={} reason=existing-job status={}", absPath, s);
+                        return;
+                    }
+                }
+                Job j = new Job();
+                j.setFilePath(absPath);
+                j.setStatus("PENDING");
+                j.setCreatedAt(System.currentTimeMillis());
+                Job saved;
+                try {
+                    saved = jobRepository.save(j);
+                } catch (org.springframework.dao.DataIntegrityViolationException | jakarta.persistence.PersistenceException ex) {
+                    var existingJob = jobRepository.findByFilePath(absPath);
+                    if (existingJob.isPresent()) {
+                        saved = existingJob.get();
+                    } else {
+                        throw ex;
+                    }
+                }
+                try {
+                    jobEventService.publishJob(saved);
+                } catch (Exception ignored) {}
+                log.info("DirectoryWatcherService enqueued job: {}", absPath);
+            }
+        } finally {
+            jobEventService.pathLocks.remove(absPath, lock);
+        }
     }
 
     @PreDestroy

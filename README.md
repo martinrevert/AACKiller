@@ -6,8 +6,9 @@ Modern HI FI movie audio receivers can't process AAC 5.1 codec multi-channel aud
 So, in synthesis, this a service that detects MKV files with AAC audio from a directory (it can be local or a remote Samba directory) and converts AAC audio tracks to AC3 using ffmpeg and leaving untouched subtitles, other non AAC tracks and specially, the video track inside the MKV container.
 
 Summary
-- Recursively probe a configured directory for MKV files that contain AAC audio.
+- Recursively probe a configured directory for MKV/MP4 files and classify audio codecs.
 - Index matching files in a persistent job table and process them with a worker.
+- Persist probe classifications (AAC and non-AAC) with codec metadata and local file identity (size + mtime) to skip unnecessary re-probing on repeated scans.
 - Safe replace: originals are renamed to a backup (`<basename>AAC.mkv` or `.bak.mkv`), conversion writes a `.tmp.mkv` and is atomically moved into place on success.
 - SMB reliability mode: for `smb://` jobs the worker uses SMBJ to rename/download/upload files, while `ffmpeg` runs only on local `work/` files to avoid direct `ffmpeg smb://` instability.
 - Exposes REST control and job APIs (start/stop/status/clear-index + create/list/delete jobs).
@@ -54,7 +55,7 @@ flowchart LR
 Components
 - `ControlController` — start/stop/status/clear-index endpoints.
 - `JobController` — create/list/delete job records.
-- `IndexerService` — recursively probes `index.scanPath` for `.mkv` files containing AAC audio and creates `PENDING` jobs.
+- `IndexerService` — recursively probes `index.scanPath` for `.mkv`/`.mp4`, reuses probe-index hits for unchanged files, and creates `PENDING` jobs only for AAC matches.
 - `WorkerService` — claims `PENDING` jobs and runs the conversion pipeline (rename -> ffmpeg -> verify -> replace).
 - `SambaService` — SMBJ-based directory listing, rename/delete, and file transfer used by scanner and SMB conversion flow.
 - `FfmpegCommandBuilder` / `FfmpegRunner` — build and run the ffmpeg command line.
@@ -180,6 +181,7 @@ sequenceDiagram
 	User->>API: POST /api/v1/control/clear-index?restart=false
 	API->>Worker: stop()
 	API->>Repo: deleteAll()
+	API->>Repo: deleteAll() probe_index
 	API->>Events: publishClear()
 	Events->>User: indexCleared + empty jobsSnapshot
 
@@ -201,7 +203,7 @@ You can configure the application using `src/main/resources/application.properti
 
 Key properties and environment variables
 
-- `index.scanPath` / `INDEX_SCANPATH` — directory to scan for MKV files (default `samples`).
+- `index.scanPath` / `INDEX_SCANPATH` — directory to scan for MKV/MP4 files (default `samples`).
 	- Implication: changing this points the indexer at a different filesystem location. After changing, call the API `POST /api/v1/control/clear-index` to remove the old index and re-run `POST /api/v1/control/start` to re-index the new location. Ensure the process has read access to the mount.
 
 - `worker.maxConcurrency` / `WORKER_MAXCONCURRENCY` — maximum number of concurrent conversion jobs (default `2`).
@@ -248,6 +250,7 @@ Recommendations
 - On low-power devices (Raspberry Pi): set `worker.maxConcurrency=1..2` and `ffmpeg.threads=1`.
 - On servers with many cores, increase `worker.maxConcurrency` and `ffmpeg.threads` carefully while monitoring CPU and IO. Aim for `worker.maxConcurrency * ffmpeg.threads` approximately equal to available CPU cores (leave room for OS and other services).
 - If you change the scanned directory (`index.scanPath`), clear the index with `POST /api/v1/control/clear-index` before re-starting the worker to avoid stale entries.
+- The probe index now stores negative detections (non-AAC) with detected codec metadata. `clear-index` removes both queued jobs and probe classifications.
 - For production or multi-instance deployments, use a server-side RDBMS for `spring.datasource.url` instead of file-backed H2.
 
 

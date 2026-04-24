@@ -2,6 +2,7 @@ package ar.com.martinrevert.aac2ac3.service;
 
 import ar.com.martinrevert.aac2ac3.infra.JobRepository;
 import ar.com.martinrevert.aac2ac3.model.Job;
+import ar.com.martinrevert.aac2ac3.model.ProbeIndexEntry;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,7 @@ import java.nio.file.FileVisitResult;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class IndexerService {
@@ -39,6 +41,9 @@ public class IndexerService {
     @Autowired
     private SambaService sambaService;
 
+    @Autowired
+    private ProbeIndexService probeIndexService;
+
     /**
      * Recursively scan `scanPath` for .mkv/.mp4 files and create a PENDING job
      * for files that contain at least one AAC audio stream and are not already
@@ -54,6 +59,7 @@ public class IndexerService {
      * unnecessary IO. If {@code sinceMs} is 0, this performs a full scan.
      */
     public void indexSince(long sinceMs) {
+        long startMs = System.currentTimeMillis();
         String scanPath = scanPathSettingsService.getScanPath();
         if (scanPath != null && scanPath.toLowerCase().startsWith("smb://")) {
             indexSamba(scanPath);
@@ -64,6 +70,12 @@ public class IndexerService {
         if (!Files.exists(root)) return;
 
         AtomicBoolean stop = new AtomicBoolean(false);
+        AtomicInteger indexHitPositive = new AtomicInteger();
+        AtomicInteger indexHitNegative = new AtomicInteger();
+        AtomicInteger indexMiss = new AtomicInteger();
+        AtomicInteger probeExecuted = new AtomicInteger();
+        AtomicInteger enqueued = new AtomicInteger();
+        AtomicInteger probeFailures = new AtomicInteger();
         final Path WORK_DIR = Path.of("work").toAbsolutePath().normalize();
         final Path LOG_DIR = Path.of("logs").toAbsolutePath().normalize();
 
@@ -102,56 +114,73 @@ public class IndexerService {
                         Optional<Job> existing = jobRepository.findByFilePath(abs);
                         if (existing.isPresent()) {
                             String st = existing.get().getStatus();
-                            if ("DONE".equals(st) || "PENDING".equals(st) || "RUNNING".equals(st)) return FileVisitResult.CONTINUE;
+                            if ("DONE".equals(st) || "PENDING".equals(st) || "RUNNING".equals(st)) {
+                                log.debug("index-skip file={} reason=existing-job status={}", abs, st);
+                                return FileVisitResult.CONTINUE;
+                            }
                         }
 
-                        JsonNode probe = probeService.probe(file.toFile());
-                        JsonNode streams = probe.path("streams");
-                        if (!streams.isArray() || streams.size() == 0) return FileVisitResult.CONTINUE;
-                        boolean hasAac = false;
-                        for (JsonNode stn : streams) {
-                            String codec = stn.path("codec_name").asText("");
-                            if ("aac".equalsIgnoreCase(codec)) { hasAac = true; break; }
-                        }
-                        if (hasAac) {
-                            Object lock = jobEventService.pathLocks.computeIfAbsent(abs, k -> new Object());
-                            try {
-                                synchronized (lock) {
-                                    Optional<Job> existing2 = jobRepository.findByFilePath(abs);
-                                    if (existing2.isPresent()) {
-                                        String st = existing2.get().getStatus();
-                                        if ("DONE".equals(st) || "PENDING".equals(st) || "RUNNING".equals(st)) {
-                                            return FileVisitResult.CONTINUE;
-                                        }
-                                    }
-                                    Job j = new Job();
-                                    j.setFilePath(abs);
-                                    j.setStatus("PENDING");
-                                    j.setCreatedAt(System.currentTimeMillis());
-                                    Job saved;
-                                    try {
-                                        saved = jobRepository.save(j);
-                                    } catch (org.springframework.dao.DataIntegrityViolationException | jakarta.persistence.PersistenceException ex) {
-                                        var existingJob = jobRepository.findByFilePath(abs);
-                                        if (existingJob.isPresent()) {
-                                            saved = existingJob.get();
-                                        } else {
-                                            throw ex;
-                                        }
-                                    }
-                                    try { jobEventService.publishJob(saved); } catch (Exception ignored) {}
+                        long fileSize = attrs.size();
+                        long fileMtime = attrs.lastModifiedTime().toMillis();
+                        Optional<ProbeIndexEntry> reusable = probeIndexService.findReusableLocal(abs, fileSize, fileMtime);
+                        if (reusable.isPresent()) {
+                            ProbeIndexEntry entry = reusable.get();
+                            if (ProbeIndexService.STATUS_AAC_MATCH.equals(entry.getProbeStatus())) {
+                                indexHitPositive.incrementAndGet();
+                                log.debug("index-skip file={} reason=index-hit-positive codec={}", abs, entry.getDetectedCodec());
+                                if (enqueuePendingJob(abs)) {
+                                    enqueued.incrementAndGet();
                                 }
-                            } finally {
-                                jobEventService.pathLocks.remove(abs);
+                                return FileVisitResult.CONTINUE;
                             }
+                            if (ProbeIndexService.STATUS_NO_AAC.equals(entry.getProbeStatus())) {
+                                indexHitNegative.incrementAndGet();
+                                log.debug("index-skip file={} reason=index-hit-negative codec={} skipReason={}",
+                                        abs,
+                                        entry.getDetectedCodec(),
+                                        entry.getSkipReason());
+                                return FileVisitResult.CONTINUE;
+                            }
+                        }
+
+                        indexMiss.incrementAndGet();
+                        probeExecuted.incrementAndGet();
+                        JsonNode probe = probeService.probe(file.toFile());
+                        ProbeIndexService.ProbeClassification classification = probeIndexService.classifyProbe(probe);
+                        probeIndexService.upsertLocal(
+                                abs,
+                                classification.probeStatus(),
+                                classification.detectedCodec(),
+                                classification.skipReason(),
+                                fileSize,
+                                fileMtime);
+                        if (classification.hasAac()) {
+                            if (enqueuePendingJob(abs)) {
+                                enqueued.incrementAndGet();
+                            }
+                        } else {
+                            log.debug("index-skip file={} reason=non-aac codec={} skipReason={}",
+                                    abs,
+                                    classification.detectedCodec(),
+                                    classification.skipReason());
                         }
                     } catch (Exception e) {
                         // probe may fail; skip this file
+                        probeFailures.incrementAndGet();
                         log.warn("Failed to inspect candidate file {}", file, e);
                     }
                     return FileVisitResult.CONTINUE;
                 }
             });
+            long elapsed = System.currentTimeMillis() - startMs;
+            log.info("Local index summary: indexHitPositive={} indexHitNegative={} indexMiss={} probeExecuted={} probeFailures={} enqueued={} elapsedMs={}",
+                    indexHitPositive.get(),
+                    indexHitNegative.get(),
+                    indexMiss.get(),
+                    probeExecuted.get(),
+                    probeFailures.get(),
+                    enqueued.get(),
+                    elapsed);
         } catch (IOException e) {
             log.error("Indexer walk failed for scanPath [{}]", scanPath, e);
         }
@@ -168,6 +197,10 @@ public class IndexerService {
             long startMs = System.currentTimeMillis();
             int totalCandidates = 0;
             int skippedExisting = 0;
+            int indexHitPositive = 0;
+            int indexHitNegative = 0;
+            int indexMiss = 0;
+            int probeExecuted = 0;
             int probeFailures = 0;
             int noAac = 0;
             int enqueued = 0;
@@ -187,21 +220,45 @@ public class IndexerService {
                         String st = existing.get().getStatus();
                         if ("DONE".equals(st) || "PENDING".equals(st) || "RUNNING".equals(st)) {
                             skippedExisting++;
+                            log.debug("index-skip file={} reason=existing-job status={}", smbFileUri, st);
                             continue;
                         }
                     }
 
+                    // SMB file identity metadata is not available in this scanner path, so reuse is unsafe.
+                    indexMiss++;
+                    probeExecuted++;
+
                     JsonNode probe = sambaService.withFileInputStream(smbFileUri, cfg, probeService::probeStreamAudioOnly);
-                    boolean hasAac = containsAacAudio(probe);
+                    ProbeIndexService.ProbeClassification classification = probeIndexService.classifyProbe(probe);
+                    boolean hasAac = classification.hasAac();
                     // Some container layouts are not reliably detected from non-seekable stdin probing.
                     // Fall back to ffprobe over authenticated SMB URI before declaring no AAC.
                     if (!hasAac) {
                         String authenticatedUri = sambaService.toAuthenticatedSmbUri(smbFileUri, cfg);
                         JsonNode fallbackProbe = probeService.probePath(authenticatedUri);
-                        hasAac = containsAacAudio(fallbackProbe);
+                        classification = probeIndexService.classifyProbe(fallbackProbe);
+                        hasAac = classification.hasAac();
                     }
+
+                    probeIndexService.upsertSmb(
+                            smbFileUri,
+                            classification.probeStatus(),
+                            classification.detectedCodec(),
+                            classification.skipReason());
+
+                    if (ProbeIndexService.STATUS_AAC_MATCH.equals(classification.probeStatus())) {
+                        indexHitPositive++;
+                    } else if (ProbeIndexService.STATUS_NO_AAC.equals(classification.probeStatus())) {
+                        indexHitNegative++;
+                    }
+
                     if (!hasAac) {
                         noAac++;
+                        log.debug("index-skip file={} reason=non-aac codec={} skipReason={}",
+                                smbFileUri,
+                                classification.detectedCodec(),
+                                classification.skipReason());
                         continue;
                     }
 
@@ -241,14 +298,23 @@ public class IndexerService {
                     }
                 } catch (Exception ex) {
                     probeFailures++;
+                    probeIndexService.upsertSmb(
+                            smbFileUri,
+                            ProbeIndexService.STATUS_PROBE_ERROR,
+                            ProbeIndexService.CODEC_UNKNOWN,
+                            "probe-exception");
                     log.warn("Failed to inspect SMB candidate file {}", smbFileUri, ex);
                 }
             }
 
             long elapsed = System.currentTimeMillis() - startMs;
-            log.info("SMB index summary: candidates={} skippedExisting={} noAac={} probeFailures={} enqueued={} elapsedMs={}",
+                log.info("SMB index summary: candidates={} skippedExisting={} indexHitPositive={} indexHitNegative={} indexMiss={} probeExecuted={} noAac={} probeFailures={} enqueued={} elapsedMs={}",
                     totalCandidates,
                     skippedExisting,
+                    indexHitPositive,
+                    indexHitNegative,
+                    indexMiss,
+                    probeExecuted,
                     noAac,
                     probeFailures,
                     enqueued,
@@ -288,5 +354,41 @@ public class IndexerService {
             }
         }
         return false;
+    }
+
+    private boolean enqueuePendingJob(String filePath) {
+        Object lock = jobEventService.pathLocks.computeIfAbsent(filePath, k -> new Object());
+        try {
+            synchronized (lock) {
+                Optional<Job> existing2 = jobRepository.findByFilePath(filePath);
+                if (existing2.isPresent()) {
+                    String st = existing2.get().getStatus();
+                    if ("DONE".equals(st) || "PENDING".equals(st) || "RUNNING".equals(st)) {
+                        return false;
+                    }
+                }
+                Job j = new Job();
+                j.setFilePath(filePath);
+                j.setStatus("PENDING");
+                j.setCreatedAt(System.currentTimeMillis());
+                Job saved;
+                try {
+                    saved = jobRepository.save(j);
+                } catch (org.springframework.dao.DataIntegrityViolationException | jakarta.persistence.PersistenceException ex) {
+                    var existingJob = jobRepository.findByFilePath(filePath);
+                    if (existingJob.isPresent()) {
+                        saved = existingJob.get();
+                    } else {
+                        throw ex;
+                    }
+                }
+                try {
+                    jobEventService.publishJob(saved);
+                } catch (Exception ignored) {}
+                return true;
+            }
+        } finally {
+            jobEventService.pathLocks.remove(filePath, lock);
+        }
     }
 }

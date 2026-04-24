@@ -40,3 +40,6 @@ work/*
 .opencode/skills/openspec-explore/SKILL.md
 .opencode/skills/openspec-propose/SKILL.md
 openspec/config.yaml
+openspec/changes/*
+openspec/specs/*
+

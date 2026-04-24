@@ -27,6 +27,12 @@
       <div class="btn-row">
         <button id="clearIndexBtn" class="btn danger">Clear Index</button>
       </div>
+      <div id="indexStatusPanel" class="mini-status" style="margin-top:10px">
+        <div><strong>Worker:</strong> <span id="idxWorkerStatus">unknown</span></div>
+        <div><strong>SSE:</strong> <span id="idxSseStatus">disconnected</span></div>
+        <div><strong>Last event:</strong> <span id="idxLastEvent">none</span></div>
+        <div><strong>Updated:</strong> <span id="idxLastAt">-</span></div>
+      </div>
       <div id="indexArea" style="margin-top:12px"></div>
     </section>
 
@@ -36,6 +42,89 @@
   </div>
 
   <script>
+    const IDX_UI_STATE_KEY = 'aac2ac3.dashboard.uiState.v1';
+
+    const idxState = {
+      workerStatus: 'unknown',
+      sseConnected: false,
+      lastEvent: 'none',
+      lastAt: 0
+    };
+
+    function idxNormalizeStatus(s){ return String(s || '').trim().toLowerCase(); }
+
+    function idxSetText(id, value){
+      const n = document.getElementById(id);
+      if(!n) return;
+      n.textContent = String(value == null ? '' : value);
+    }
+
+    function idxFormatTime(ms){
+      if(!ms) return '-';
+      try { return new Date(Number(ms)).toLocaleTimeString(); }
+      catch(e){ return '-'; }
+    }
+
+    function idxLoadPersistedState(){
+      try{
+        const raw = localStorage.getItem(IDX_UI_STATE_KEY);
+        if(!raw) return;
+        const parsed = JSON.parse(raw);
+        if(parsed && typeof parsed === 'object'){
+          if(parsed.workerStatus) idxState.workerStatus = parsed.workerStatus;
+          if(typeof parsed.sseConnected === 'boolean') idxState.sseConnected = parsed.sseConnected;
+          if(parsed.lastEventText) idxState.lastEvent = parsed.lastEventText;
+          if(Number.isFinite(parsed.lastEventAt)) idxState.lastAt = Number(parsed.lastEventAt);
+        }
+      }catch(e){ console.warn('idx persisted state load failed', e); }
+    }
+
+    function idxSaveState(){
+      try{
+        const raw = localStorage.getItem(IDX_UI_STATE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        parsed.workerStatus = idxState.workerStatus;
+        parsed.sseConnected = idxState.sseConnected;
+        parsed.lastEventText = idxState.lastEvent;
+        parsed.lastEventAt = idxState.lastAt;
+        localStorage.setItem(IDX_UI_STATE_KEY, JSON.stringify(parsed));
+      }catch(e){ console.warn('idx persisted state save failed', e); }
+    }
+
+    function idxRenderStatus(){
+      idxSetText('idxWorkerStatus', idxState.workerStatus);
+      idxSetText('idxSseStatus', idxState.sseConnected ? 'connected' : 'disconnected');
+      idxSetText('idxLastEvent', idxState.lastEvent || 'none');
+      idxSetText('idxLastAt', idxFormatTime(idxState.lastAt));
+
+      const sseNode = document.getElementById('idxSseStatus');
+      if(sseNode){
+        sseNode.classList.toggle('connected', idxState.sseConnected);
+        sseNode.classList.toggle('disconnected', !idxState.sseConnected);
+      }
+      idxSaveState();
+    }
+
+    function idxMarkEvent(name){
+      idxState.lastEvent = name || 'event';
+      idxState.lastAt = Date.now();
+      idxRenderStatus();
+    }
+
+    async function loadWorkerStatus(){
+      try{
+        const res = await fetch('/api/v1/control/scan-config');
+        if(!res.ok) return;
+        const body = await res.json();
+        if(typeof body.workerRunning === 'boolean'){
+          idxState.workerStatus = body.workerRunning ? 'running' : 'stopped';
+          idxMarkEvent('scan-config-loaded');
+        }
+      }catch(e){
+        console.warn('loadWorkerStatus failed', e);
+      }
+    }
+
     function setBusy(button, busy, busyText){
       if(!button) return;
       if(busy){
@@ -122,14 +211,35 @@
     function startSSE(){
       if(es) return;
       es = new EventSource('/api/v1/jobs/stream');
+      idxState.sseConnected = true;
+      idxMarkEvent('sse-connected');
       es.addEventListener('jobsSnapshot', ev => { try{ const data = JSON.parse(ev.data || '[]'); updateFromArray(data); }catch(e){ console.error(e); } });
       es.addEventListener('job', ev => { try{ const j = JSON.parse(ev.data); upsertJob(j); }catch(e){ console.error(e); } });
       es.addEventListener('jobDeleted', ev => { try{ deleteJobById(Number(ev.data)); }catch(e){ console.error(e); } });
-      es.addEventListener('indexCleared', ev => { jobsCacheJson = ''; const area = document.getElementById('indexArea'); if(area) area.innerHTML = '<div class="muted">No jobs</div>'; });
-      es.onerror = (err) => { try{ es.close(); }catch(e){}; es = null; setTimeout(startSSE, 3000); };
+      es.addEventListener('indexCleared', ev => {
+        jobsCacheJson = '';
+        const area = document.getElementById('indexArea');
+        if(area) area.innerHTML = '<div class="muted">No jobs</div>';
+        idxMarkEvent('index-cleared');
+      });
+      es.addEventListener('workerStatus', ev => {
+        idxState.workerStatus = ev.data || 'unknown';
+        idxMarkEvent(`worker-${idxNormalizeStatus(ev.data || 'unknown')}`);
+      });
+      es.onerror = (err) => {
+        idxState.sseConnected = false;
+        idxMarkEvent('sse-disconnected');
+        try{ es.close(); }catch(e){};
+        es = null;
+        setTimeout(startSSE, 3000);
+      };
     }
 
     document.addEventListener('DOMContentLoaded',()=>{
+      idxLoadPersistedState();
+      idxRenderStatus();
+      loadWorkerStatus();
+
       const clearBtn = document.getElementById('clearIndexBtn');
       if(clearBtn) clearBtn.addEventListener('click', async ()=>{
         if(!confirm('Clear index and delete all jobs?')) return;

@@ -2,6 +2,7 @@ package ar.com.martinrevert.aac2ac3.api;
 
 import ar.com.martinrevert.aac2ac3.service.WorkerService;
 import ar.com.martinrevert.aac2ac3.infra.JobRepository;
+import ar.com.martinrevert.aac2ac3.infra.ProbeIndexRepository;
 import ar.com.martinrevert.aac2ac3.service.SambaService;
 import ar.com.martinrevert.aac2ac3.service.ScanPathSettingsService;
 import org.slf4j.Logger;
@@ -36,6 +37,9 @@ public class ControlController {
 
     @Autowired
     private JobRepository jobRepository;
+
+    @Autowired
+    private ProbeIndexRepository probeIndexRepository;
 
     @Autowired
     private ar.com.martinrevert.aac2ac3.service.JobEventService jobEventService;
@@ -288,6 +292,7 @@ public class ControlController {
         // stop worker first to avoid races
         workerService.stop();
         jobRepository.deleteAll();
+        probeIndexRepository.deleteAll();
         try { jobEventService.publishClear(); } catch (Exception ignored) {}
         if (restart) {
             try { workerService.start(); } catch (Exception ignored) {}

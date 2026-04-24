@@ -30,7 +30,32 @@
         <button id="stopBtn" class="btn">Stop Worker</button>
         <button id="clearBtn" class="btn danger">Clear Index</button>
       </div>
-      <div id="statusArea" class="status">Status: <span id="statusText">unknown</span></div>
+      <div id="statusArea" class="status status-panel">
+        <div class="status-row"><strong>Worker:</strong> <span id="statusText">unknown</span></div>
+        <div class="status-row"><strong>Process state:</strong> <span id="processStateText">waiting</span></div>
+        <div class="status-row"><strong>What app is doing:</strong> <span id="statusDetailText">Waiting for worker status</span></div>
+        <div class="status-row counters-row">
+          <span>Total: <strong id="statusTotal">0</strong></span>
+          <span>Pending: <strong id="statusPending">0</strong></span>
+          <span>Running: <strong id="statusRunning">0</strong></span>
+          <span>Done: <strong id="statusDone">0</strong></span>
+          <span>Failed: <strong id="statusFailed">0</strong></span>
+        </div>
+      </div>
+
+      <div id="processOverview" class="process-overview">
+        <div class="process-overview-header">Process Overview</div>
+        <div class="process-grid">
+          <div class="process-card"><span class="label">Current activity</span><span id="processActivity">unknown</span></div>
+          <div class="process-card"><span class="label">SSE</span><span id="sseStatus">disconnected</span></div>
+          <div class="process-card"><span class="label">Last event</span><span id="lastEventText">none</span></div>
+          <div class="process-card"><span class="label">Last update</span><span id="lastEventAt">-</span></div>
+          <div class="process-card"><span class="label">Jobs total</span><span id="jobsTotal">0</span></div>
+          <div class="process-card"><span class="label">Pending</span><span id="jobsPending">0</span></div>
+          <div class="process-card"><span class="label">Running</span><span id="jobsRunning">0</span></div>
+          <div class="process-card"><span class="label">Done / Failed</span><span id="jobsDoneFailed">0 / 0</span></div>
+        </div>
+      </div>
 
       <div id="scanConfigSection" class="scan-config hidden">
         <h3>Scan Directory (Worker Stopped)</h3>
